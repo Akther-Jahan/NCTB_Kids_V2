@@ -391,7 +391,7 @@ export default function StudentSetupScreen() {
           >
             <View style={styles.guideGlow} />
             <Image
-              source={require("../../../../assets/characters/mimi/waving.png")}
+              source={require("../../../../assets/images/tiger.png")}
               style={styles.guideImage}
               resizeMode="contain"
             />
@@ -846,7 +846,7 @@ const styles = StyleSheet.create({
   },
 
   classCard: {
-    minHeight: 250,
+    minHeight: 150,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
