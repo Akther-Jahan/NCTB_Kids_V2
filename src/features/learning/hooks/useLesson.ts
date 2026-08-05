@@ -1,4 +1,4 @@
-import { Activity, useEffect, useState } from 'react';
+import {useEffect, useState } from 'react';
 import { supabase } from '../../../config/supabase';
 export type Activity = {
   id: string;

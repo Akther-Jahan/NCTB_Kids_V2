@@ -391,7 +391,7 @@ export default function StudentSetupScreen() {
           >
             <View style={styles.guideGlow} />
             <Image
-              source={require("../../../../assets/images/tiger.png")}
+              source={require("../../../../assets/characters/mimi/waving.png")}
               style={styles.guideImage}
               resizeMode="contain"
             />
