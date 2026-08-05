@@ -18,18 +18,23 @@ export function adaptSupabaseChapter(
   chapter: SupabaseCurriculumChapter,
   options: AdapterOptions = {},
 ): CurriculumChapter {
-  const orderedActivities = [...chapter.lesson_activities].sort(
+  const orderedActivities = [
+    ...chapter.lesson_activities,
+  ].sort(
     (a, b) => a.order_index - b.order_index,
   );
 
-  const activities = orderedActivities.flatMap((activity) =>
-    adaptActivity(chapter, activity),
+  const activities = orderedActivities.flatMap(
+    (activity) =>
+      adaptActivity(chapter, activity),
   );
 
   return {
     id: chapter.id,
     title: chapter.title_bn,
-    subtitle: chapter.summary_bn ?? `পাঠ ${chapter.chapter_number}`,
+    subtitle:
+      chapter.summary_bn ??
+      `পাঠ ${chapter.chapter_number}`,
     icon: options.chapterIcon ?? "📘",
     nextChapterId: options.nextChapterId,
     activities,
@@ -41,30 +46,43 @@ function adaptActivity(
   activity: SupabaseLessonActivity,
 ): Activity[] {
   const title =
-    activity.title_bn ?? activity.title_en ?? "শেখার কাজ";
+    activity.title_bn ??
+    activity.title_en ??
+    "শেখার কাজ";
 
   const instruction =
-    activity.instruction_bn ?? activity.instruction_en ?? "";
+    activity.instruction_bn ??
+    activity.instruction_en ??
+    "";
 
   switch (activity.activity_type) {
     case "story_snippet": {
-      return activity.payload.slides.flatMap((slide, index): Activity[] => {
-        const text = (slide.text_bn || slide.speech_bn || "").trim();
+      return activity.payload.slides.flatMap(
+        (slide, index): Activity[] => {
+          const text = (
+            slide.text_bn ||
+            slide.speech_bn ||
+            ""
+          ).trim();
 
-        if (!text) {
-          return [];
-        }
+          if (!text) {
+            return [];
+          }
 
-        return [
-          {
-            id: `${activity.id}-${slide.id || index + 1}`,
-            type: "snippet",
-            title,
-            imageEmoji: slide.emoji ?? "📖",
-            lines: [text],
-          },
-        ];
-      });
+          return [
+            {
+              id: `${activity.id}-${
+                slide.id || index + 1
+              }`,
+              type: "snippet",
+              title,
+              imageEmoji:
+                slide.emoji ?? "📖",
+              lines: [text],
+            },
+          ];
+        },
+      );
     }
 
     case "image_lesson":
@@ -74,31 +92,40 @@ function adaptActivity(
           type: "image_lesson",
           title,
           instruction,
-          imageUrl: activity.payload.image_url,
-          pageStart: activity.payload.page_start,
-          pageEnd: activity.payload.page_end,
-          sourceLabel: activity.payload.source_label ?? "NCTB পাঠ্যবই",
+          imageUrl:
+            activity.payload.image_url,
+          pageStart:
+            activity.payload.page_start,
+          pageEnd:
+            activity.payload.page_end,
+          sourceLabel:
+            activity.payload.source_label ??
+            "NCTB পাঠ্যবই",
         },
       ];
 
     case "audio_lesson":
-      return activity.payload.items.flatMap((item, index): Activity[] => {
-        const text = item.text_bn.trim();
+      return activity.payload.items.flatMap(
+        (item, index): Activity[] => {
+          const text = item.text_bn.trim();
 
-        if (!text) {
-          return [];
-        }
+          if (!text) {
+            return [];
+          }
 
-        return [
-          {
-            id: `${activity.id}-${item.id || index + 1}`,
-            type: "voice",
-            prompt: instruction || title,
-            word: text,
-            emoji: item.emoji ?? "🎤",
-          },
-        ];
-      });
+          return [
+            {
+              id: `${activity.id}-${
+                item.id || index + 1
+              }`,
+              type: "voice",
+              prompt: instruction || title,
+              word: text,
+              emoji: item.emoji ?? "🎤",
+            },
+          ];
+        },
+      );
 
     case "video_lesson":
       return activity.payload.video_url
@@ -118,7 +145,9 @@ function adaptActivity(
           emoji: card.emoji ?? "🖼️",
           word: card.word_bn,
         }))
-        .filter((card) => card.word.trim().length > 0);
+        .filter(
+          (card) => card.word.trim().length > 0,
+        );
 
       if (!cards.length) {
         return [];
@@ -140,7 +169,9 @@ function adaptActivity(
           emoji: pair.emoji ?? "🖼️",
           word: pair.word_bn,
         }))
-        .filter((pair) => pair.word.trim().length > 0);
+        .filter(
+          (pair) => pair.word.trim().length > 0,
+        );
 
       if (!pairs.length) {
         return [];
@@ -157,17 +188,26 @@ function adaptActivity(
     }
 
     case "multiple_choice":
-      return adaptQuizQuestions(chapter.quiz_questions);
+      return adaptQuizQuestions(
+        chapter.quiz_questions,
+        activity.id,
+      );
 
     case "tap": {
       const items = activity.payload.items
         .map((item, index) => ({
-          id: item.id || `${activity.id}-item-${index + 1}`,
+          id:
+            item.id ||
+            `${activity.id}-item-${index + 1}`,
           emoji: item.emoji ?? "🖼️",
           label: item.label_bn,
-          description: item.description_bn ?? item.label_bn,
+          description:
+            item.description_bn ??
+            item.label_bn,
         }))
-        .filter((item) => item.label.trim().length > 0);
+        .filter(
+          (item) => item.label.trim().length > 0,
+        );
 
       if (!items.length) {
         return [];
@@ -177,7 +217,10 @@ function adaptActivity(
         {
           id: activity.id,
           type: "tap",
-          prompt: activity.payload.prompt || instruction || title,
+          prompt:
+            activity.payload.prompt ||
+            instruction ||
+            title,
           items,
         },
       ];
@@ -197,7 +240,9 @@ function adaptActivity(
           id: activity.id,
           type: "snippet",
           title,
-          imageEmoji: activity.payload.imageEmoji ?? "📖",
+          imageEmoji:
+            activity.payload.imageEmoji ??
+            "📖",
           lines,
         },
       ];
@@ -209,8 +254,12 @@ function adaptActivity(
           id: activity.id,
           type: "letter",
           letter: activity.payload.letter,
-          sound: activity.payload.sound ?? activity.payload.letter,
-          examples: (activity.payload.examples ?? []).map((item) => ({
+          sound:
+            activity.payload.sound ??
+            activity.payload.letter,
+          examples: (
+            activity.payload.examples ?? []
+          ).map((item) => ({
             emoji: item.emoji ?? "🖼️",
             word: item.word_bn,
           })),
@@ -233,11 +282,16 @@ function adaptActivity(
         {
           id: activity.id,
           type: "picture_choice",
-          question: activity.payload.question,
-          options: activity.payload.options.map((item) => ({
-            emoji: item.emoji ?? "🖼️",
-            label: item.label_bn,
-          })),
+          question:
+            activity.payload.question,
+          options:
+            activity.payload.options.map(
+              (item) => ({
+                emoji:
+                  item.emoji ?? "🖼️",
+                label: item.label_bn,
+              }),
+            ),
           answer: activity.payload.answer,
         },
       ];
@@ -247,11 +301,16 @@ function adaptActivity(
         {
           id: activity.id,
           type: "drag_game",
-          prompt: activity.payload.prompt || instruction || title,
-          items: activity.payload.items.map((item) => ({
-            emoji: item.emoji ?? "🖼️",
-            target: item.target,
-          })),
+          prompt:
+            activity.payload.prompt ||
+            instruction ||
+            title,
+          items: activity.payload.items.map(
+            (item) => ({
+              emoji: item.emoji ?? "🖼️",
+              target: item.target,
+            }),
+          ),
         },
       ];
 
@@ -262,19 +321,42 @@ function adaptActivity(
 
 function adaptQuizQuestions(
   questions: SupabaseQuizQuestion[],
+  activityId: string,
 ): Activity[] {
-  return [...questions]
-    .sort((a, b) => a.order_index - b.order_index)
+  const linkedQuestions = questions.filter(
+    (question) =>
+      question.activity_id === activityId,
+  );
+
+  const compatibleQuestions =
+    linkedQuestions.length > 0
+      ? linkedQuestions
+      : questions.filter(
+          (question) =>
+            question.activity_id === null,
+        );
+
+  return [...compatibleQuestions]
+    .sort(
+      (a, b) =>
+        a.order_index - b.order_index,
+    )
     .flatMap((question): Activity[] => {
-      const options = [...question.quiz_options].sort(
-        (a, b) => a.option_order - b.option_order,
+      const options = [
+        ...question.quiz_options,
+      ].sort(
+        (a, b) =>
+          a.option_order - b.option_order,
       );
 
       const correctAnswer = options.findIndex(
         (option) => option.is_correct,
       );
 
-      if (correctAnswer < 0 || options.length < 2) {
+      if (
+        correctAnswer < 0 ||
+        options.length < 2
+      ) {
         return [];
       }
 
@@ -284,10 +366,15 @@ function adaptQuizQuestions(
           type: "quiz",
           question: question.question_bn,
           options: options.map(
-            (option) => option.label_bn ?? option.label_en ?? "",
+            (option) =>
+              option.label_bn ??
+              option.label_en ??
+              "",
           ),
           answer: correctAnswer,
-          hint: question.explanation_bn ?? "আবার চেষ্টা করো।",
+          hint:
+            question.explanation_bn ??
+            "আবার চেষ্টা করো।",
         },
       ];
     });
