@@ -7,6 +7,7 @@ import ChapterPathScreen from "../features/learning/screens/ChapterPathScreen";
 import LessonPlayerScreen from "../features/learning/screens/LessonPlayerScreen";
 import ProgressScreen from "../features/progress/screens/ProgressScreen";
 import DonationScreen from "../features/donation/screens/DonationScreen";
+import SettingsScreen from "../features/settings/screens/SettingsScreen";
 import AdultGateScreen from "../features/parent/screens/AdultGateScreen";
 import ParentDashboardScreen from "../features/parent/screens/ParentDashboardScreen";
 import LoginScreen from "../features/auth/screens/LoginScreen";
@@ -51,6 +52,10 @@ export default function AppNavigator() {
       <Stack.Screen
         name="Donation"
         component={DonationScreen}
+      />
+      <Stack.Screen
+        name="Settings"
+        component={SettingsScreen}
       />
 
       <Stack.Screen

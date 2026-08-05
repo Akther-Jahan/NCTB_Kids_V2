@@ -10,6 +10,7 @@ export type RootStackParamList = {
   Leaderboard: undefined;
   Progress: undefined;
   Donation: undefined;
+  Settings: undefined;
   AdultGate: {
     destination: "parent" | "admin";
   };
