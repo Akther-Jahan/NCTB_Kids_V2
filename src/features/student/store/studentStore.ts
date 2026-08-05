@@ -5,6 +5,7 @@ import { isSupabaseConfigured } from "../../../config/supabase";
 import { useGamificationStore } from "../../gamification/store/gamificationStore";
 import { useLessonSessionStore } from "../../learning/store/lessonSessionStore";
 import { parentService } from "../../parent/services/parentService";
+import { progressService } from "../../learning/services/progressService";
 import {
   studentService,
   type StudentRow,
@@ -198,12 +199,57 @@ async function resetLocalLearningState() {
 async function saveRecoveredProgress(
   row: StudentRow,
 ) {
-  const cloudProgress =
-    await studentService
-      .getRecoveryProgress(
+  const localState =
+    useGamificationStore.getState();
+
+  const localCompletedChapterIds =
+    Object.keys(
+      localState.completedChapters,
+    );
+
+  // Recovery-এর আগে local completed chapters
+  // Supabase-এ upload করার চেষ্টা করবে।
+  for (const chapterId of localCompletedChapterIds) {
+    try {
+      await progressService.completeChapter(
         row.id,
-        row.class_level,
+        chapterId,
       );
+    } catch (syncError) {
+      console.warn(
+        `Recovery progress upload failed for chapter ${chapterId}`,
+        syncError,
+      );
+    }
+  }
+
+  const cloudProgress =
+    await studentService.getRecoveryProgress(
+      row.id,
+      row.class_level,
+    );
+
+  const cloudHasProgress =
+    Object.keys(
+      cloudProgress.completedChapters,
+    ).length > 0 ||
+    cloudProgress.stars > 0;
+
+  const localHasProgress =
+    localCompletedChapterIds.length > 0 ||
+    localState.stars > 0;
+
+  // Cloud empty কিন্তু local progress থাকলে
+  // local progress delete করবে না।
+  if (
+    !cloudHasProgress &&
+    localHasProgress
+  ) {
+    console.warn(
+      "Cloud progress is empty. Local child progress was preserved.",
+    );
+    return;
+  }
 
   await resetLocalLearningState();
 

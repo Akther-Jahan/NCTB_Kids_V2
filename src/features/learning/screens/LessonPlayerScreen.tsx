@@ -39,6 +39,7 @@ import { ImageLessonActivity } from "../components/ImageLessonActivity";
 import { VideoActivity } from "../components/VideoActivity";
 import MimiIntroActivity from "../components/MimiIntroActivity";
 import AnimatedStoryActivity from "../components/AnimatedStoryActivity";
+import QuizBattleActivity from "../components/QuizBattleActivity";
 
 async function speakBangla(text: string) {
   await Speech.stop();
@@ -373,9 +374,26 @@ export default function LessonPlayerScreen({
           student.id,
           chapter.id,
         );
+      
       } catch (syncError) {
-        console.warn("Cloud sync failed", syncError);
-      }
+  const message =
+    syncError instanceof Error
+      ? syncError.message
+      : String(syncError);
+
+  console.error(
+    "Cloud progress save failed:",
+    message,
+  );
+
+  Alert.alert(
+    "Cloud progress save হয়নি",
+    message,
+  );
+
+  return;
+}
+      
     }
 
     setResult({
@@ -1044,30 +1062,30 @@ function ActivityRenderer({
           onComplete={onComplete}
         />
       );
+     case "choice":
+  return (
+    <QuizBattleActivity
+      prompt={activity.prompt}
+      options={activity.options}
+      answer={activity.answer}
+      hint={activity.hint}
+      attempts={attempts}
+      onAttempt={onAttempt}
+    />
+  );
+  case "quiz":
+  return (
+    <QuizBattleActivity
+      prompt={activity.question}
+      options={activity.options}
+      answer={activity.answer}
+      hint={activity.hint}
+      attempts={attempts}
+      onAttempt={onAttempt}
+    />
+  );
 
-    case "choice":
-      return (
-        <QuestionActivity
-          prompt={activity.prompt}
-          options={activity.options}
-          answer={activity.answer}
-          hint={activity.hint}
-          attempts={attempts}
-          onAttempt={onAttempt}
-        />
-      );
 
-    case "quiz":
-      return (
-        <QuestionActivity
-          prompt={activity.question}
-          options={activity.options}
-          answer={activity.answer}
-          hint={activity.hint}
-          attempts={attempts}
-          onAttempt={onAttempt}
-        />
-      );
 
     default:
       return (
