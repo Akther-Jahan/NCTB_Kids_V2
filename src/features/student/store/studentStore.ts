@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { isSupabaseConfigured } from "../../../config/supabase";
 import { useGamificationStore } from "../../gamification/store/gamificationStore";
 import { useLessonSessionStore } from "../../learning/store/lessonSessionStore";
+import { parentService } from "../../parent/services/parentService";
 import {
   studentService,
   type StudentRow,
@@ -28,11 +29,15 @@ type StudentStore = {
   student: StudentProfile | null;
   createStudent: (
     classLevel: number,
+    nickname: string,
   ) => Promise<StudentProfile>;
   loadStudent: () => Promise<void>;
   restoreStudent: (
     studentCode: string,
     recoveryCode: string,
+  ) => Promise<StudentProfile>;
+  restoreLinkedChild: (
+    studentId: string,
   ) => Promise<StudentProfile>;
   acknowledgeRecovery: () => Promise<void>;
   linkParent: () => Promise<void>;
@@ -42,11 +47,15 @@ type StudentStore = {
 function validStudent(
   value: unknown,
 ): value is StudentProfile {
-  if (!value || typeof value !== "object") {
+  if (
+    !value ||
+    typeof value !== "object"
+  ) {
     return false;
   }
 
-  const item = value as Partial<StudentProfile>;
+  const item =
+    value as Partial<StudentProfile>;
 
   return (
     typeof item.id === "string" &&
@@ -57,7 +66,9 @@ function validStudent(
   );
 }
 
-function avatarFromKey(avatarKey: string) {
+function avatarFromKey(
+  avatarKey: string,
+) {
   if (avatarKey === "tiger-1") {
     return "🐯";
   }
@@ -67,6 +78,32 @@ function avatarFromKey(avatarKey: string) {
   }
 
   return "🐼";
+}
+
+function normalizeNickname(
+  nickname: string,
+) {
+  return nickname
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function validateNickname(
+  nickname: string,
+) {
+  const normalized =
+    normalizeNickname(nickname);
+
+  if (
+    normalized.length < 1 ||
+    normalized.length > 40
+  ) {
+    throw new Error(
+      "Child name must contain 1 to 40 characters.",
+    );
+  }
+
+  return normalized;
 }
 
 function mapStudentRow(
@@ -79,7 +116,9 @@ function mapStudentRow(
     studentCode: row.student_code,
     classLevel: row.class_level,
     nickname: row.display_name,
-    avatar: avatarFromKey(row.avatar_key),
+    avatar: avatarFromKey(
+      row.avatar_key,
+    ),
     parentLinked,
     accountType: parentLinked
       ? "parent"
@@ -94,16 +133,19 @@ function mapStudentRow(
 
 function createLocalStudent(
   classLevel: number,
+  nickname: string,
 ): StudentProfile {
   const random = Math.floor(
     10000 + Math.random() * 90000,
   );
 
   return {
-    id: `local-${Date.now()}-${random}`,
-    studentCode: `NCTB-C${classLevel}-${random}`,
+    id:
+      `local-${Date.now()}-${random}`,
+    studentCode:
+      `NCTB-C${classLevel}-${random}`,
     classLevel,
-    nickname: "তুমি",
+    nickname,
     avatar: "🐯",
     parentLinked: false,
     accountType: "guest",
@@ -125,29 +167,37 @@ async function saveStudent(
 async function readCachedStudent():
   Promise<StudentProfile | null> {
   const raw =
-    await AsyncStorage.getItem(STORAGE_KEY);
+    await AsyncStorage.getItem(
+      STORAGE_KEY,
+    );
 
   if (!raw) {
     return null;
   }
 
   try {
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown =
+      JSON.parse(raw);
 
     if (!validStudent(parsed)) {
-      await AsyncStorage.removeItem(STORAGE_KEY);
+      await AsyncStorage.removeItem(
+        STORAGE_KEY,
+      );
       return null;
     }
 
     return {
       ...parsed,
-      nickname: parsed.nickname ?? "তুমি",
-      avatar: parsed.avatar ?? "🐯",
+      nickname:
+        parsed.nickname ?? "তুমি",
+      avatar:
+        parsed.avatar ?? "🐯",
       parentLinked:
         parsed.parentLinked ?? false,
       accountType:
         parsed.accountType ?? "guest",
-      totalPoints: parsed.totalPoints ?? 0,
+      totalPoints:
+        parsed.totalPoints ?? 0,
       recoveryCode:
         parsed.recoveryCode ?? null,
       recoveryAcknowledged:
@@ -155,7 +205,9 @@ async function readCachedStudent():
         parsed.id.startsWith("local-"),
     };
   } catch {
-    await AsyncStorage.removeItem(STORAGE_KEY);
+    await AsyncStorage.removeItem(
+      STORAGE_KEY,
+    );
     return null;
   }
 }
@@ -171,227 +223,313 @@ async function resetLocalLearningState() {
   ]);
 }
 
+async function saveRecoveredProgress(
+  row: StudentRow,
+) {
+  const cloudProgress =
+    await studentService
+      .getRecoveryProgress(
+        row.id,
+        row.class_level,
+      );
+
+  await resetLocalLearningState();
+
+  useGamificationStore
+    .getState()
+    .replaceProgress(cloudProgress);
+
+  await useGamificationStore
+    .getState()
+    .saveProgress();
+}
+
 export const useStudentStore =
-  create<StudentStore>((set, get) => ({
-    student: null,
+  create<StudentStore>(
+    (set, get) => ({
+      student: null,
 
-    createStudent: async (classLevel) => {
-      const existing = get().student;
+      createStudent: async (
+        classLevel,
+        nickname,
+      ) => {
+        const existing =
+          get().student;
 
-      if (existing) {
-        return existing;
-      }
-
-      let profile: StudentProfile;
-
-      if (isSupabaseConfigured) {
-        const user =
-          await studentService.ensureSession();
-
-        const existingStudent =
-          await studentService
-            .findChildDeviceStudent(user.id);
-
-        if (existingStudent) {
-          const parentLinked =
-            await studentService.hasParentLink(
-              existingStudent.id,
-            );
-
-          profile = mapStudentRow(
-            existingStudent,
-            parentLinked,
-            false,
-          );
-        } else {
-          const row =
-            await studentService.createStudent(
-              classLevel,
-            );
-
-          profile = mapStudentRow(
-            row,
-            false,
-            false,
-          );
+        if (existing) {
+          return existing;
         }
-      } else {
-        profile =
-          createLocalStudent(classLevel);
-      }
 
-      await saveStudent(profile);
-      set({ student: profile });
+        const safeNickname =
+          validateNickname(nickname);
 
-      return profile;
-    },
+        let profile: StudentProfile;
 
-    loadStudent: async () => {
-      const cached =
-        await readCachedStudent();
-
-      if (cached) {
-        set({ student: cached });
-      }
-
-      if (
-        !isSupabaseConfigured ||
-        cached?.id.startsWith("local-")
-      ) {
-        return;
-      }
-
-      try {
-        const user =
-          await studentService.ensureSession();
-
-        let row = cached
-          ? await studentService.getStudent(
-              cached.id,
-            )
-          : null;
-
-        if (!row) {
-          row =
+        if (isSupabaseConfigured) {
+          const user =
             await studentService
-              .findChildDeviceStudent(user.id);
+              .ensureSession();
+
+          const existingStudent =
+            await studentService
+              .findChildDeviceStudent(
+                user.id,
+              );
+
+          if (existingStudent) {
+            const parentLinked =
+              await studentService
+                .hasParentLink(
+                  existingStudent.id,
+                );
+
+            profile = mapStudentRow(
+              existingStudent,
+              parentLinked,
+              false,
+            );
+          } else {
+            const row =
+              await studentService
+                .createStudent(
+                  classLevel,
+                  safeNickname,
+                );
+
+            profile = mapStudentRow(
+              row,
+              false,
+              false,
+            );
+          }
+        } else {
+          profile =
+            createLocalStudent(
+              classLevel,
+              safeNickname,
+            );
         }
 
-        if (!row) {
+        await saveStudent(profile);
+        set({ student: profile });
+
+        return profile;
+      },
+
+      loadStudent: async () => {
+        const cached =
+          await readCachedStudent();
+
+        if (cached) {
+          set({ student: cached });
+        }
+
+        if (
+          !isSupabaseConfigured ||
+          cached?.id.startsWith(
+            "local-",
+          )
+        ) {
+          return;
+        }
+
+        try {
+          const user =
+            await studentService
+              .ensureSession();
+
+          let row = cached
+            ? await studentService
+                .getStudent(cached.id)
+            : null;
+
+          if (!row) {
+            row =
+              await studentService
+                .findChildDeviceStudent(
+                  user.id,
+                );
+          }
+
+          if (!row) {
+            await AsyncStorage.removeItem(
+              STORAGE_KEY,
+            );
+            set({ student: null });
+            return;
+          }
+
+          const parentLinked =
+            await studentService
+              .hasParentLink(row.id);
+
+          const profile =
+            mapStudentRow(
+              row,
+              parentLinked,
+              cached
+                ?.recoveryAcknowledged ??
+                false,
+            );
+
+          await saveStudent(profile);
+          set({ student: profile });
+        } catch (error) {
+          if (cached) {
+            console.warn(
+              "Cloud student refresh failed; using cached profile.",
+              error,
+            );
+            return;
+          }
+
           await AsyncStorage.removeItem(
             STORAGE_KEY,
           );
           set({ student: null });
+          throw error;
+        }
+      },
+
+      restoreStudent: async (
+        studentCode,
+        recoveryCode,
+      ) => {
+        if (!isSupabaseConfigured) {
+          throw new Error(
+            "Cloud sync is not configured.",
+          );
+        }
+
+        const row =
+          await studentService
+            .restoreStudent(
+              studentCode,
+              recoveryCode,
+            );
+
+        const parentLinked =
+          await studentService
+            .hasParentLink(row.id);
+
+        await saveRecoveredProgress(
+          row,
+        );
+
+        const profile =
+          mapStudentRow(
+            row,
+            parentLinked,
+            true,
+          );
+
+        await saveStudent(profile);
+
+        set({ student: profile });
+
+        return profile;
+      },
+
+      restoreLinkedChild: async (
+        studentId,
+      ) => {
+        if (!isSupabaseConfigured) {
+          throw new Error(
+            "Cloud sync is not configured.",
+          );
+        }
+
+        const childUser =
+          await studentService
+            .ensureSession();
+
+        await parentService
+          .recoverLinkedChild(
+            studentId,
+            childUser.id,
+          );
+
+        const row =
+          await studentService
+            .getStudent(studentId);
+
+        if (!row) {
+          throw new Error(
+            "Recovered child profile could not be loaded.",
+          );
+        }
+
+        await saveRecoveredProgress(
+          row,
+        );
+
+        const profile =
+          mapStudentRow(
+            row,
+            true,
+            true,
+          );
+
+        await saveStudent(profile);
+
+        set({ student: profile });
+
+        return profile;
+      },
+
+      acknowledgeRecovery:
+        async () => {
+          const student =
+            get().student;
+
+          if (!student) {
+            return;
+          }
+
+          const next: StudentProfile = {
+            ...student,
+            recoveryAcknowledged:
+              true,
+          };
+
+          await saveStudent(next);
+          set({ student: next });
+        },
+
+      linkParent: async () => {
+        const student =
+          get().student;
+
+        if (!student) {
           return;
         }
 
         const parentLinked =
-          await studentService.hasParentLink(
-            row.id,
-          );
+          await studentService
+            .hasParentLink(student.id);
 
-        const profile = mapStudentRow(
-          row,
+        const next: StudentProfile = {
+          ...student,
           parentLinked,
-          cached?.recoveryAcknowledged ??
-            false,
-        );
+          accountType:
+            parentLinked
+              ? "parent"
+              : "guest",
+        };
 
-        await saveStudent(profile);
-        set({ student: profile });
-      } catch (error) {
-        if (cached) {
-          console.warn(
-            "Cloud student refresh failed; using cached profile.",
-            error,
-          );
-          return;
-        }
+        await saveStudent(next);
+        set({ student: next });
+      },
 
-        await AsyncStorage.removeItem(
-          STORAGE_KEY,
-        );
-        set({ student: null });
-        throw error;
-      }
-    },
-
-    restoreStudent: async (
-      studentCode,
-      recoveryCode,
-    ) => {
-      if (!isSupabaseConfigured) {
-        throw new Error(
-          "Cloud sync is not configured.",
-        );
-      }
-
-      const row =
-        await studentService.restoreStudent(
-          studentCode,
-          recoveryCode,
-        );
-
-      const [parentLinked, cloudProgress] =
+      clearStudent: async () => {
         await Promise.all([
-          studentService.hasParentLink(row.id),
-          studentService.getRecoveryProgress(
-            row.id,
-            row.class_level,
+          AsyncStorage.removeItem(
+            STORAGE_KEY,
           ),
+          resetLocalLearningState(),
         ]);
 
-      await resetLocalLearningState();
-
-      useGamificationStore
-        .getState()
-        .replaceProgress(cloudProgress);
-
-      await useGamificationStore
-        .getState()
-        .saveProgress();
-
-      const profile = mapStudentRow(
-        row,
-        parentLinked,
-        true,
-      );
-
-      await saveStudent(profile);
-
-      // Set the student last so RootNavigator switches
-      // only after cloud progress has been restored.
-      set({ student: profile });
-
-      return profile;
-    },
-
-    acknowledgeRecovery: async () => {
-      const student = get().student;
-
-      if (!student) {
-        return;
-      }
-
-      const next: StudentProfile = {
-        ...student,
-        recoveryAcknowledged: true,
-      };
-
-      await saveStudent(next);
-      set({ student: next });
-    },
-
-    linkParent: async () => {
-      const student = get().student;
-
-      if (!student) {
-        return;
-      }
-
-      const parentLinked =
-        await studentService.hasParentLink(
-          student.id,
-        );
-
-      const next: StudentProfile = {
-        ...student,
-        parentLinked,
-        accountType: parentLinked
-          ? "parent"
-          : "guest",
-      };
-
-      await saveStudent(next);
-      set({ student: next });
-    },
-
-    clearStudent: async () => {
-      await Promise.all([
-        AsyncStorage.removeItem(STORAGE_KEY),
-        resetLocalLearningState(),
-      ]);
-
-      set({ student: null });
-    },
-  }));
+        set({ student: null });
+      },
+    }),
+  );

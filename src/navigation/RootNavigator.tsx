@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { useAuth } from "../contexts/AuthContext";
 import ResetPasswordScreen from "../features/auth/screens/ResetPasswordScreen";
+import ParentLinkedRecoveryScreen from "../features/student/screens/ParentLinkedRecoveryScreen";
 import RecoveryBackupScreen from "../features/student/screens/RecoveryBackupScreen";
 import StudentRecoveryScreen from "../features/student/screens/StudentRecoveryScreen";
 import StudentSetupScreen from "../features/student/screens/StudentSetupScreen";
@@ -20,7 +21,8 @@ export default function RootNavigator() {
   const { recoveryUrl } = useAuth();
 
   const needsRecoveryBackup = Boolean(
-    student?.recoveryCode && !student.recoveryAcknowledged,
+    student?.recoveryCode &&
+      !student.recoveryAcknowledged,
   );
 
   return (
@@ -48,6 +50,16 @@ export default function RootNavigator() {
             name="StudentSetup"
             component={StudentSetupScreen}
           />
+
+          <Stack.Screen
+            name="ParentLinkedRecovery"
+            component={ParentLinkedRecoveryScreen}
+            options={{
+              presentation: "modal",
+              animation: "slide_from_bottom",
+            }}
+          />
+
           <Stack.Screen
             name="StudentRecovery"
             component={StudentRecoveryScreen}

@@ -14,6 +14,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -80,15 +81,20 @@ const TEXT = {
   bn: {
     eyebrow: "NCTB KIDS",
     headline: "চলো শেখা\nশুরু করি!",
-    question: "তুমি কোন শ্রেণিতে পড়ো?",
+    question: "তোমার নাম কী, আর তুমি কোন শ্রেণিতে পড়ো?",
     voice:
-      "হ্যালো বন্ধু! তুমি কোন শ্রেণিতে পড়ো? নিচের একটি শ্রেণি বেছে নাও।",
+      "হ্যালো বন্ধু! প্রথমে তোমার নাম লিখো। তারপর তুমি কোন শ্রেণিতে পড়ো সেটি বেছে নাও।",
+    nameLabel: "তোমার নাম",
+    namePlaceholder: "যেমন: রাফি",
+    nameHint: "মিমি তোমাকে এই নামে ডাকবে",
     classWord: "শ্রেণি",
     listen: "আবার শুনি",
     continue: "শুরু করি",
-    recover: "আগের Account ফিরিয়ে আনি",
-    recoverHint:
-      "Student ID ও Recovery Code আছে?",
+    parentRecover: "মা-বাবার Account দিয়ে ফিরিয়ে আনুন",
+    parentRecoverHint:
+      "Linked child হলে সবচেয়ে সহজ উপায়",
+    backupRecover:
+      "Student ID + Recovery Code ব্যবহার করুন",
     selected: (label: string) =>
       `দারুণ! তুমি ${label} শ্রেণি বেছে নিয়েছো। এবার শুরু করি বাটনে চাপ দাও।`,
     success:
@@ -100,15 +106,20 @@ const TEXT = {
   en: {
     eyebrow: "NCTB KIDS",
     headline: "Let’s learn,\nplay & grow!",
-    question: "Which class are you in?",
+    question: "What is your name and class?",
     voice:
-      "Hello, friend! Which class are you in? Choose one of the classes below.",
+      "Hello, friend! First enter your name. Then choose your class below.",
+    nameLabel: "Your name",
+    namePlaceholder: "For example: Rafi",
+    nameHint: "Mimi will call you by this name",
     classWord: "Class",
     listen: "Hear again",
     continue: "Get started",
-    recover: "Restore previous account",
-    recoverHint:
-      "Have a Student ID and Recovery Code?",
+    parentRecover: "Restore with Parent Account",
+    parentRecoverHint:
+      "The easiest way for a linked child",
+    backupRecover:
+      "Use Student ID + Recovery Code",
     selected: (label: string) =>
       `Great! You selected Class ${label}. Now tap the Get started button.`,
     success:
@@ -134,6 +145,8 @@ export default function StudentSetupScreen({
 
   const [language, setLanguage] =
     useState<Language>("bn");
+  const [childName, setChildName] =
+    useState("");
   const [selectedClass, setSelectedClass] =
     useState<ClassLevel | null>(null);
   const [creating, setCreating] =
@@ -238,6 +251,36 @@ export default function StudentSetupScreen({
   };
 
   const continueSetup = async () => {
+    const normalizedName = childName
+      .trim()
+      .replace(/\s+/g, " ");
+
+    if (!normalizedName) {
+      Alert.alert(
+        language === "bn"
+          ? "নাম লিখো"
+          : "Enter a name",
+        language === "bn"
+          ? "শিশুর নাম লিখে তারপর শ্রেণি বেছে নাও।"
+          : "Enter the child name, then choose a class.",
+      );
+      return;
+    }
+
+    if (
+      normalizedName.length > 40
+    ) {
+      Alert.alert(
+        language === "bn"
+          ? "নামটি অনেক বড়"
+          : "Name is too long",
+        language === "bn"
+          ? "নাম সর্বোচ্চ ৪০ অক্ষরের হতে পারবে।"
+          : "The name can contain up to 40 characters.",
+      );
+      return;
+    }
+
     if (!selectedClass || creating) {
       return;
     }
@@ -246,7 +289,10 @@ export default function StudentSetupScreen({
     speak(copy.success, language);
 
     try {
-      await createStudent(selectedClass);
+      await createStudent(
+        selectedClass,
+        normalizedName,
+      );
     } catch (error) {
       setCreating(false);
 
@@ -425,6 +471,35 @@ export default function StudentSetupScreen({
           <View style={styles.selectionCard}>
             <View style={styles.sheetHandle} />
 
+            <View style={styles.nameField}>
+              <Text style={styles.nameLabel}>
+                {copy.nameLabel}
+              </Text>
+
+              <View style={styles.nameInputWrap}>
+                <Text style={styles.nameInputIcon}>
+                  😊
+                </Text>
+
+                <TextInput
+                  value={childName}
+                  editable={!creating}
+                  onChangeText={setChildName}
+                  maxLength={40}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  placeholder={copy.namePlaceholder}
+                  placeholderTextColor="#AAA1AE"
+                  returnKeyType="done"
+                  style={styles.nameInput}
+                />
+              </View>
+
+              <Text style={styles.nameHint}>
+                {copy.nameHint}
+              </Text>
+            </View>
+
             <View style={styles.classRow}>
               {CLASS_OPTIONS.map((option) => {
                 const selected =
@@ -520,14 +595,17 @@ export default function StudentSetupScreen({
             <Pressable
               accessibilityRole="button"
               disabled={
-                !selectedClass || creating
+                !childName.trim() ||
+                !selectedClass ||
+                creating
               }
               onPress={() =>
                 void continueSetup()
               }
               style={({ pressed }) => [
                 styles.cta,
-                (!selectedClass ||
+                (!childName.trim() ||
+                  !selectedClass ||
                   creating) &&
                   styles.ctaDisabled,
                 pressed &&
@@ -581,7 +659,7 @@ export default function StudentSetupScreen({
               disabled={creating}
               onPress={() =>
                 navigation.navigate(
-                  "StudentRecovery",
+                  "ParentLinkedRecovery",
                 )
               }
               style={({ pressed }) => [
@@ -595,7 +673,7 @@ export default function StudentSetupScreen({
                 <Text
                   style={styles.recoveryIcon}
                 >
-                  🔐
+                  👪
                 </Text>
               </View>
 
@@ -605,17 +683,47 @@ export default function StudentSetupScreen({
                 <Text
                   style={styles.recoveryTitle}
                 >
-                  {copy.recover}
+                  {copy.parentRecover}
                 </Text>
                 <Text
                   style={styles.recoveryHint}
                 >
-                  {copy.recoverHint}
+                  {copy.parentRecoverHint}
                 </Text>
               </View>
 
               <Text
                 style={styles.recoveryArrow}
+              >
+                ›
+              </Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              disabled={creating}
+              onPress={() =>
+                navigation.navigate(
+                  "StudentRecovery",
+                )
+              }
+              style={({ pressed }) => [
+                styles.backupRecoveryButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                style={styles.backupRecoveryIcon}
+              >
+                🔑
+              </Text>
+              <Text
+                style={styles.backupRecoveryText}
+              >
+                {copy.backupRecover}
+              </Text>
+              <Text
+                style={styles.backupRecoveryArrow}
               >
                 ›
               </Text>
@@ -853,6 +961,44 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "#DDD7E3",
   },
+  nameField: {
+    marginBottom: 15,
+  },
+  nameLabel: {
+    marginLeft: 4,
+    marginBottom: 7,
+    fontSize: 12,
+    fontWeight: "900",
+    color: "#4E4652",
+  },
+  nameInputWrap: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    borderWidth: 2,
+    borderColor: "#DED7E4",
+    borderRadius: 20,
+    backgroundColor: "#FAF8FB",
+  },
+  nameInputIcon: {
+    fontSize: 21,
+  },
+  nameInput: {
+    flex: 1,
+    marginLeft: 10,
+    paddingVertical: 13,
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#342E36",
+  },
+  nameHint: {
+    marginTop: 5,
+    marginLeft: 5,
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#8A808D",
+  },
   classRow: {
     flexDirection: "row",
     gap: 9,
@@ -1020,6 +1166,31 @@ const styles = StyleSheet.create({
   recoveryArrow: {
     marginRight: 8,
     fontSize: 27,
+    color: "#7553BA",
+  },
+  backupRecoveryButton: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 9,
+    paddingHorizontal: 12,
+    borderRadius: 23,
+    backgroundColor: "#FFF1C8",
+  },
+  backupRecoveryIcon: {
+    fontSize: 17,
+  },
+  backupRecoveryText: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 10,
+    fontWeight: "900",
+    color: "#655633",
+    textAlign: "center",
+  },
+  backupRecoveryArrow: {
+    fontSize: 23,
     color: "#7553BA",
   },
   pressed: {
