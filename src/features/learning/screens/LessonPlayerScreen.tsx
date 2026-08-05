@@ -60,6 +60,7 @@ function needsCompletion(activity: Activity) {
     "video",
     "word_build",
     "tap",
+    "flashcard",
     "voice",
     "matching",
     "picture_choice",
@@ -997,16 +998,17 @@ function ActivityRenderer({
       );
 
     case "flashcard":
-      return (
-        <FlashcardActivity
-          activity={{
-            payload: {
-              prompt: activity.prompt,
-              cards: activity.cards,
-            },
-          }}
-        />
-      );
+  return (
+    <FlashcardActivity
+      activity={{
+        payload: {
+          prompt: activity.prompt,
+          cards: activity.cards,
+        },
+      }}
+      onComplete={onComplete}
+    />
+  ); 
 
     case "voice":
       return (
