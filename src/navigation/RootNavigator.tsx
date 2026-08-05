@@ -1,18 +1,17 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import React from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-import { useStudentStore } from '../features/student/store/studentStore';
-import { useAuth } from '../contexts/AuthContext';
-import ResetPasswordScreen from '../features/auth/screens/ResetPasswordScreen';
-import StudentSetupScreen from '../features/student/screens/StudentSetupScreen';
-import AppNavigator from './AppNavigator';
+import { useAuth } from "../contexts/AuthContext";
+import ResetPasswordScreen from "../features/auth/screens/ResetPasswordScreen";
+import RecoveryBackupScreen from "../features/student/screens/RecoveryBackupScreen";
+import StudentRecoveryScreen from "../features/student/screens/StudentRecoveryScreen";
+import StudentSetupScreen from "../features/student/screens/StudentSetupScreen";
+import { useStudentStore } from "../features/student/store/studentStore";
+import AppNavigator from "./AppNavigator";
+import type { GateStackParamList } from "./gateRoutes";
 
-export type GateStackParamList = {
-  StudentSetup: undefined;
-  MainApp: undefined;
-  PasswordRecovery: undefined;
-};
+export type { GateStackParamList } from "./gateRoutes";
 
 const Stack = createNativeStackNavigator<GateStackParamList>();
 
@@ -20,20 +19,65 @@ export default function RootNavigator() {
   const student = useStudentStore((state) => state.student);
   const { recoveryUrl } = useAuth();
 
+  const needsRecoveryBackup = Boolean(
+    student?.recoveryCode && !student.recoveryAcknowledged,
+  );
+
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {recoveryUrl ? (
+      {recoveryUrl ? (
+        <Stack.Navigator
+          key="password-recovery"
+          screenOptions={{ headerShown: false }}
+        >
           <Stack.Screen
             name="PasswordRecovery"
             component={ResetPasswordScreen}
           />
-        ) : student ? (
-          <Stack.Screen name="MainApp" component={AppNavigator} />
-        ) : (
-          <Stack.Screen name="StudentSetup" component={StudentSetupScreen} />
-        )}
-      </Stack.Navigator>
+        </Stack.Navigator>
+      ) : !student ? (
+        <Stack.Navigator
+          key="student-entry"
+          initialRouteName="StudentSetup"
+          screenOptions={{
+            headerShown: false,
+            animation: "slide_from_right",
+          }}
+        >
+          <Stack.Screen
+            name="StudentSetup"
+            component={StudentSetupScreen}
+          />
+          <Stack.Screen
+            name="StudentRecovery"
+            component={StudentRecoveryScreen}
+            options={{
+              presentation: "modal",
+              animation: "slide_from_bottom",
+            }}
+          />
+        </Stack.Navigator>
+      ) : needsRecoveryBackup ? (
+        <Stack.Navigator
+          key="recovery-backup"
+          screenOptions={{ headerShown: false }}
+        >
+          <Stack.Screen
+            name="RecoveryBackup"
+            component={RecoveryBackupScreen}
+          />
+        </Stack.Navigator>
+      ) : (
+        <Stack.Navigator
+          key="main-app"
+          screenOptions={{ headerShown: false }}
+        >
+          <Stack.Screen
+            name="MainApp"
+            component={AppNavigator}
+          />
+        </Stack.Navigator>
+      )}
     </NavigationContainer>
   );
 }
