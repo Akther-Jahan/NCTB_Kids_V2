@@ -14,7 +14,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -81,12 +80,9 @@ const TEXT = {
   bn: {
     eyebrow: "NCTB KIDS",
     headline: "চলো শেখা\nশুরু করি!",
-    question: "তোমার নাম কী, আর তুমি কোন শ্রেণিতে পড়ো?",
+    question: "তুমি কোন শ্রেণিতে পড়ো?",
     voice:
-      "হ্যালো বন্ধু! প্রথমে তোমার নাম লিখো। তারপর তুমি কোন শ্রেণিতে পড়ো সেটি বেছে নাও।",
-    nameLabel: "তোমার নাম",
-    namePlaceholder: "যেমন: রাফি",
-    nameHint: "মিমি তোমাকে এই নামে ডাকবে",
+      "হ্যালো বন্ধু! তুমি কোন শ্রেণিতে পড়ো? নিচের একটি শ্রেণি বেছে নাও।",
     classWord: "শ্রেণি",
     listen: "আবার শুনি",
     continue: "শুরু করি",
@@ -106,12 +102,9 @@ const TEXT = {
   en: {
     eyebrow: "NCTB KIDS",
     headline: "Let’s learn,\nplay & grow!",
-    question: "What is your name and class?",
+    question: "Which class are you in?",
     voice:
-      "Hello, friend! First enter your name. Then choose your class below.",
-    nameLabel: "Your name",
-    namePlaceholder: "For example: Rafi",
-    nameHint: "Mimi will call you by this name",
+      "Hello, friend! Which class are you in? Choose one of the classes below.",
     classWord: "Class",
     listen: "Hear again",
     continue: "Get started",
@@ -145,8 +138,6 @@ export default function StudentSetupScreen({
 
   const [language, setLanguage] =
     useState<Language>("bn");
-  const [childName, setChildName] =
-    useState("");
   const [selectedClass, setSelectedClass] =
     useState<ClassLevel | null>(null);
   const [creating, setCreating] =
@@ -251,36 +242,6 @@ export default function StudentSetupScreen({
   };
 
   const continueSetup = async () => {
-    const normalizedName = childName
-      .trim()
-      .replace(/\s+/g, " ");
-
-    if (!normalizedName) {
-      Alert.alert(
-        language === "bn"
-          ? "নাম লিখো"
-          : "Enter a name",
-        language === "bn"
-          ? "শিশুর নাম লিখে তারপর শ্রেণি বেছে নাও।"
-          : "Enter the child name, then choose a class.",
-      );
-      return;
-    }
-
-    if (
-      normalizedName.length > 40
-    ) {
-      Alert.alert(
-        language === "bn"
-          ? "নামটি অনেক বড়"
-          : "Name is too long",
-        language === "bn"
-          ? "নাম সর্বোচ্চ ৪০ অক্ষরের হতে পারবে।"
-          : "The name can contain up to 40 characters.",
-      );
-      return;
-    }
-
     if (!selectedClass || creating) {
       return;
     }
@@ -291,7 +252,6 @@ export default function StudentSetupScreen({
     try {
       await createStudent(
         selectedClass,
-        normalizedName,
       );
     } catch (error) {
       setCreating(false);
@@ -471,35 +431,6 @@ export default function StudentSetupScreen({
           <View style={styles.selectionCard}>
             <View style={styles.sheetHandle} />
 
-            <View style={styles.nameField}>
-              <Text style={styles.nameLabel}>
-                {copy.nameLabel}
-              </Text>
-
-              <View style={styles.nameInputWrap}>
-                <Text style={styles.nameInputIcon}>
-                  😊
-                </Text>
-
-                <TextInput
-                  value={childName}
-                  editable={!creating}
-                  onChangeText={setChildName}
-                  maxLength={40}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  placeholder={copy.namePlaceholder}
-                  placeholderTextColor="#AAA1AE"
-                  returnKeyType="done"
-                  style={styles.nameInput}
-                />
-              </View>
-
-              <Text style={styles.nameHint}>
-                {copy.nameHint}
-              </Text>
-            </View>
-
             <View style={styles.classRow}>
               {CLASS_OPTIONS.map((option) => {
                 const selected =
@@ -595,17 +526,14 @@ export default function StudentSetupScreen({
             <Pressable
               accessibilityRole="button"
               disabled={
-                !childName.trim() ||
-                !selectedClass ||
-                creating
+                !selectedClass || creating
               }
               onPress={() =>
                 void continueSetup()
               }
               style={({ pressed }) => [
                 styles.cta,
-                (!childName.trim() ||
-                  !selectedClass ||
+                (!selectedClass ||
                   creating) &&
                   styles.ctaDisabled,
                 pressed &&
@@ -960,44 +888,6 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderRadius: 3,
     backgroundColor: "#DDD7E3",
-  },
-  nameField: {
-    marginBottom: 15,
-  },
-  nameLabel: {
-    marginLeft: 4,
-    marginBottom: 7,
-    fontSize: 12,
-    fontWeight: "900",
-    color: "#4E4652",
-  },
-  nameInputWrap: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    borderWidth: 2,
-    borderColor: "#DED7E4",
-    borderRadius: 20,
-    backgroundColor: "#FAF8FB",
-  },
-  nameInputIcon: {
-    fontSize: 21,
-  },
-  nameInput: {
-    flex: 1,
-    marginLeft: 10,
-    paddingVertical: 13,
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#342E36",
-  },
-  nameHint: {
-    marginTop: 5,
-    marginLeft: 5,
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#8A808D",
   },
   classRow: {
     flexDirection: "row",

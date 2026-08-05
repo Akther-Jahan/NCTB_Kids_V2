@@ -31,6 +31,7 @@ export type ParentChild = {
 export type ParentLinkRequest = {
   id: string;
   studentId: string;
+  requestedName: string;
   status:
     | "pending"
     | "approved"
@@ -132,14 +133,32 @@ function mapReport(
 }
 
 export const parentService = {
-  async requestLink(studentCode: string) {
+  async requestLink(
+    studentCode: string,
+    childName: string,
+  ) {
+    const normalizedName = childName
+      .trim()
+      .replace(/\s+/g, " ");
+
+    if (
+      normalizedName.length < 1 ||
+      normalizedName.length > 40
+    ) {
+      throw new Error(
+        "Child name must contain 1 to 40 characters.",
+      );
+    }
+
     const { data, error } =
       await parentSupabase.rpc(
-        "request_parent_link",
+        "request_parent_link_with_name",
         {
           p_student_code: studentCode
             .trim()
             .toUpperCase(),
+          p_display_name:
+            normalizedName,
         },
       );
 
@@ -272,6 +291,7 @@ export const parentService = {
           [
             "id",
             "student_id",
+            "requested_display_name",
             "status",
             "expires_at",
             "created_at",
@@ -292,6 +312,7 @@ export const parentService = {
       (data ?? []) as unknown as Array<{
         id: string;
         student_id: string;
+        requested_display_name: string | null;
         status: ParentLinkRequest["status"];
         expires_at: string;
         created_at: string;
@@ -300,6 +321,9 @@ export const parentService = {
     return requestRows.map((row) => ({
       id: row.id,
       studentId: row.student_id,
+      requestedName:
+        row.requested_display_name ??
+        "Child",
       status: row.status,
       expiresAt: row.expires_at,
       createdAt: row.created_at,

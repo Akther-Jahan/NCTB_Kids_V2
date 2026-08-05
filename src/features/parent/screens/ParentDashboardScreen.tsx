@@ -110,6 +110,8 @@ export default function ParentDashboardScreen({
   >([]);
   const [selectedId, setSelectedId] =
     useState("");
+  const [childName, setChildName] =
+    useState("");
   const [studentCode, setStudentCode] =
     useState("");
   const [loadingData, setLoadingData] =
@@ -239,9 +241,28 @@ export default function ParentDashboardScreen({
   }, [children]);
 
   const sendLinkRequest = async () => {
+    const normalizedName = childName
+      .trim()
+      .replace(/\s+/g, " ");
     const normalizedCode = studentCode
       .trim()
       .toUpperCase();
+
+    if (!normalizedName) {
+      Alert.alert(
+        "শিশুর নাম দিন",
+        "Parent হিসেবে আপনার সন্তানের নাম লিখুন।",
+      );
+      return;
+    }
+
+    if (normalizedName.length > 40) {
+      Alert.alert(
+        "নামটি অনেক বড়",
+        "শিশুর নাম সর্বোচ্চ ৪০ অক্ষরের হতে পারবে।",
+      );
+      return;
+    }
 
     if (!normalizedCode) {
       Alert.alert(
@@ -256,8 +277,10 @@ export default function ParentDashboardScreen({
     try {
       await parentService.requestLink(
         normalizedCode,
+        normalizedName,
       );
 
+      setChildName("");
       setStudentCode("");
       await loadDashboard();
 
@@ -564,9 +587,31 @@ export default function ParentDashboardScreen({
               </View>
 
               <Text style={styles.helperText}>
-                Child-এর Subjects screen-এ থাকা
-                Student ID লিখে link request পাঠান।
+                শিশুর নাম এবং Child-এর Subjects
+                screen-এ থাকা Student ID লিখে
+                link request পাঠান।
               </Text>
+
+              <View style={styles.nameInputWrap}>
+                <Text style={styles.codeIcon}>
+                  😊
+                </Text>
+
+                <TextInput
+                  value={childName}
+                  editable={!sending}
+                  onChangeText={setChildName}
+                  maxLength={40}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  placeholder="শিশুর নাম, যেমন: রাফি"
+                  placeholderTextColor="#AAA1AE"
+                  selectionColor="#7553BA"
+                  returnKeyType="next"
+                  style={styles.codeInput}
+                  accessibilityLabel="Child name"
+                />
+              </View>
 
               <View style={styles.codeRow}>
                 <View style={styles.codeInputWrap}>
@@ -594,16 +639,24 @@ export default function ParentDashboardScreen({
 
                 <Pressable
                   accessibilityRole="button"
-                  disabled={sending}
+                  disabled={
+                    sending ||
+                    !childName.trim() ||
+                    !studentCode.trim()
+                  }
                   onPress={() =>
                     void sendLinkRequest()
                   }
                   style={({ pressed }) => [
                     styles.sendButton,
-                    sending &&
+                    (sending ||
+                      !childName.trim() ||
+                      !studentCode.trim()) &&
                       styles.sendButtonDisabled,
                     pressed &&
                       !sending &&
+                      childName.trim() &&
+                      studentCode.trim() &&
                       styles.sendButtonPressed,
                   ]}
                 >
@@ -648,6 +701,14 @@ export default function ParentDashboardScreen({
                             {getStatusText(
                               request.status,
                             )}
+                          </Text>
+                          <Text
+                            style={
+                              styles.requestName
+                            }
+                            numberOfLines={1}
+                          >
+                            {request.requestedName}
                           </Text>
                           <Text
                             style={
@@ -783,9 +844,9 @@ export default function ParentDashboardScreen({
                   এখনো কোনো child link হয়নি
                 </Text>
                 <Text style={styles.emptyText}>
-                  উপরে Student ID দিয়ে request
-                  পাঠান, তারপর child device থেকে
-                  Allow Parent চাপুন।
+                  উপরে শিশুর নাম ও Student ID
+                  দিয়ে request পাঠান, তারপর child
+                  device থেকে Allow Parent চাপুন।
                 </Text>
               </View>
             )}
@@ -1558,6 +1619,18 @@ const styles = StyleSheet.create({
     color: "#786F7B",
   },
 
+  nameInputWrap: {
+    minHeight: 57,
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 11,
+    paddingHorizontal: 12,
+    borderWidth: 2,
+    borderColor: "#D9D2DE",
+    borderRadius: 19,
+    backgroundColor: "#FBFAFC",
+  },
+
   codeRow: {
     flexDirection: "row",
     gap: 8,
@@ -1645,6 +1718,13 @@ const styles = StyleSheet.create({
   },
 
   requestTitle: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: "#715D2E",
+  },
+
+  requestName: {
+    marginTop: 2,
     fontSize: 10,
     fontWeight: "900",
     color: "#715D2E",

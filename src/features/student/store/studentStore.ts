@@ -29,7 +29,6 @@ type StudentStore = {
   student: StudentProfile | null;
   createStudent: (
     classLevel: number,
-    nickname: string,
   ) => Promise<StudentProfile>;
   loadStudent: () => Promise<void>;
   restoreStudent: (
@@ -80,32 +79,6 @@ function avatarFromKey(
   return "🐼";
 }
 
-function normalizeNickname(
-  nickname: string,
-) {
-  return nickname
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
-function validateNickname(
-  nickname: string,
-) {
-  const normalized =
-    normalizeNickname(nickname);
-
-  if (
-    normalized.length < 1 ||
-    normalized.length > 40
-  ) {
-    throw new Error(
-      "Child name must contain 1 to 40 characters.",
-    );
-  }
-
-  return normalized;
-}
-
 function mapStudentRow(
   row: StudentRow,
   parentLinked: boolean,
@@ -133,7 +106,6 @@ function mapStudentRow(
 
 function createLocalStudent(
   classLevel: number,
-  nickname: string,
 ): StudentProfile {
   const random = Math.floor(
     10000 + Math.random() * 90000,
@@ -145,7 +117,7 @@ function createLocalStudent(
     studentCode:
       `NCTB-C${classLevel}-${random}`,
     classLevel,
-    nickname,
+    nickname: "তুমি",
     avatar: "🐯",
     parentLinked: false,
     accountType: "guest",
@@ -251,7 +223,6 @@ export const useStudentStore =
 
       createStudent: async (
         classLevel,
-        nickname,
       ) => {
         const existing =
           get().student;
@@ -259,9 +230,6 @@ export const useStudentStore =
         if (existing) {
           return existing;
         }
-
-        const safeNickname =
-          validateNickname(nickname);
 
         let profile: StudentProfile;
 
@@ -293,7 +261,6 @@ export const useStudentStore =
               await studentService
                 .createStudent(
                   classLevel,
-                  safeNickname,
                 );
 
             profile = mapStudentRow(
@@ -306,7 +273,6 @@ export const useStudentStore =
           profile =
             createLocalStudent(
               classLevel,
-              safeNickname,
             );
         }
 
@@ -504,12 +470,23 @@ export const useStudentStore =
           return;
         }
 
-        const parentLinked =
-          await studentService
-            .hasParentLink(student.id);
+        const [parentLinked, latestRow] =
+          await Promise.all([
+            studentService.hasParentLink(
+              student.id,
+            ),
+            student.id.startsWith("local-")
+              ? Promise.resolve(null)
+              : studentService.getStudent(
+                  student.id,
+                ),
+          ]);
 
         const next: StudentProfile = {
           ...student,
+          nickname:
+            latestRow?.display_name ??
+            student.nickname,
           parentLinked,
           accountType:
             parentLinked
