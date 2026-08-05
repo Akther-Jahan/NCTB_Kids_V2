@@ -6,6 +6,7 @@ import SubjectSelectionScreen from "../features/learning/screens/SubjectSelectio
 import ChapterPathScreen from "../features/learning/screens/ChapterPathScreen";
 import LessonPlayerScreen from "../features/learning/screens/LessonPlayerScreen";
 import ProgressScreen from "../features/progress/screens/ProgressScreen";
+import DonationScreen from "../features/donation/screens/DonationScreen";
 import AdultGateScreen from "../features/parent/screens/AdultGateScreen";
 import ParentDashboardScreen from "../features/parent/screens/ParentDashboardScreen";
 import LoginScreen from "../features/auth/screens/LoginScreen";
@@ -46,6 +47,10 @@ export default function AppNavigator() {
       <Stack.Screen
         name="Progress"
         component={ProgressScreen}
+      />
+      <Stack.Screen
+        name="Donation"
+        component={DonationScreen}
       />
 
       <Stack.Screen
