@@ -24,7 +24,11 @@ import { useStudentStore } from "../../student/store/studentStore";
 import { type Activity } from "../data/curriculum";
 import { useCurriculumChapter } from "../hooks/useCurriculumChapter";
 import { progressService } from "../services/progressService";
-import { useLessonSessionStore } from "../store/lessonSessionStore";
+import {
+  type LessonSession,
+  type QuestionResult,
+  useLessonSessionStore,
+} from "../store/lessonSessionStore";
 
 import AudioStoryActivity from "../components/AudioStoryActivity";
 import LetterActivity from "../components/LetterActivity";
@@ -41,6 +45,28 @@ import MimiIntroActivity from "../components/MimiIntroActivity";
 import AnimatedStoryActivity from "../components/AnimatedStoryActivity";
 import QuizBattleActivity from "../components/QuizBattleActivity";
 
+const DEFAULT_MAX_QUIZ_ATTEMPTS = 3;
+
+type LessonResult = {
+  score: number;
+  points: number;
+  stars: number;
+  totalQuestions: number;
+  correctQuestions: number;
+  needsRetryQuestions: number;
+  totalAttempts: number;
+};
+
+const EMPTY_RESULT: LessonResult = {
+  score: 100,
+  points: 30,
+  stars: 3,
+  totalQuestions: 0,
+  correctQuestions: 0,
+  needsRetryQuestions: 0,
+  totalAttempts: 0,
+};
+
 async function speakBangla(text: string) {
   await Speech.stop();
 
@@ -49,6 +75,15 @@ async function speakBangla(text: string) {
     rate: 0.78,
     pitch: 1.03,
   });
+}
+
+function isQuizActivity(
+  activity: Activity,
+): boolean {
+  return (
+    activity.type === "quiz" ||
+    activity.type === "choice"
+  );
 }
 
 function needsCompletion(activity: Activity) {
@@ -70,33 +105,63 @@ function needsCompletion(activity: Activity) {
   ].includes(activity.type);
 }
 
-function calculateQuizScore(
+function getQuestionResult(
+  session: LessonSession | undefined,
+  activityId: string,
+): QuestionResult | undefined {
+  return session?.questionResults?.[activityId];
+}
+
+function calculateLessonResult(
   activities: Activity[],
-  attemptsByActivity: Record<string, number>,
-) {
+  session: LessonSession,
+): LessonResult {
   const quizzes = activities.filter(
-    (activity) =>
-      activity.type === "quiz" ||
-      activity.type === "choice",
+    isQuizActivity,
   );
 
   if (!quizzes.length) {
-    return 100;
+    return EMPTY_RESULT;
   }
 
-  const total = quizzes.reduce((sum, quiz) => {
-    const attempts = Math.max(
-      1,
-      attemptsByActivity[quiz.id] ?? 1,
-    );
+  let correctQuestions = 0;
+  let totalAttempts = 0;
 
-    return (
-      sum +
-      Math.max(40, 100 - (attempts - 1) * 20)
-    );
-  }, 0);
+  for (const quiz of quizzes) {
+    const result =
+      session.questionResults[quiz.id];
 
-  return Math.round(total / quizzes.length);
+    if (result?.status === "correct") {
+      correctQuestions += 1;
+    }
+
+    totalAttempts +=
+      result?.attempts ?? 0;
+  }
+
+  const totalQuestions = quizzes.length;
+  const needsRetryQuestions =
+    totalQuestions - correctQuestions;
+
+  const score = Math.round(
+    (correctQuestions / totalQuestions) * 100,
+  );
+
+  const stars =
+    score >= 90 ? 3 : score >= 70 ? 2 : 1;
+
+  const points =
+    stars === 3 ? 30 : stars === 2 ? 20 : 10;
+
+  return {
+    score,
+    points,
+    stars,
+    totalQuestions,
+    correctQuestions,
+    needsRetryQuestions,
+    totalAttempts,
+  };
 }
 
 function getActivityMeta(activity: Activity) {
@@ -219,18 +284,21 @@ export default function LessonPlayerScreen({
   navigation,
   route,
 }: ScreenProps<"Lesson">) {
-  const { width, height } = useWindowDimensions();
+  const { width, height } =
+    useWindowDimensions();
 
   const isSmallPhone = width < 360;
   const isShortScreen = height < 760;
   const isTablet = width >= 600;
 
   const maxWidth = isTablet ? 820 : 620;
+
   const horizontalPadding = isSmallPhone
     ? 10
     : isTablet
       ? 28
       : 14;
+
   const activityPadding = isSmallPhone
     ? 12
     : isTablet
@@ -246,58 +314,125 @@ export default function LessonPlayerScreen({
     retry,
   } = useCurriculumChapter(chapterId);
 
-  const completeChapter = useGamificationStore(
-    (state) => state.completeChapter,
-  );
-  const addBadge = useGamificationStore(
-    (state) => state.addBadge,
-  );
-  const student = useStudentStore(
-    (state) => state.student,
-  );
+  const completeChapter =
+    useGamificationStore(
+      (state) => state.completeChapter,
+    );
 
-  const session = useLessonSessionStore(
-    (state) => state.sessions[chapterId],
-  );
-  const startOrResume = useLessonSessionStore(
-    (state) => state.startOrResume,
-  );
-  const saveStep = useLessonSessionStore(
-    (state) => state.setStep,
-  );
+  const addBadge =
+    useGamificationStore(
+      (state) => state.addBadge,
+    );
+
+  const student =
+    useStudentStore(
+      (state) => state.student,
+    );
+
+  const session =
+    useLessonSessionStore(
+      (state) =>
+        state.sessions[chapterId],
+    );
+
+  const startOrResume =
+    useLessonSessionStore(
+      (state) => state.startOrResume,
+    );
+
+  const saveStep =
+    useLessonSessionStore(
+      (state) => state.setStep,
+    );
+
   const markActivityComplete =
     useLessonSessionStore(
-      (state) => state.markActivityComplete,
+      (state) =>
+        state.markActivityComplete,
     );
-  const recordAttempt = useLessonSessionStore(
-    (state) => state.recordAttempt,
-  );
-  const clearSession = useLessonSessionStore(
-    (state) => state.clearSession,
-  );
 
-  const [step, setStep] = useState(0);
-  const [finished, setFinished] = useState(false);
-  const [result, setResult] = useState({
-    score: 100,
-    points: 30,
-    stars: 3,
-  });
+  const recordQuestionAttempt =
+    useLessonSessionStore(
+      (state) =>
+        state.recordQuestionAttempt,
+    );
+
+  const markQuestionNeedsRetry =
+    useLessonSessionStore(
+      (state) =>
+        state.markQuestionNeedsRetry,
+    );
+
+  const resetQuestionForRetry =
+    useLessonSessionStore(
+      (state) =>
+        state.resetQuestionForRetry,
+    );
+
+  const markSessionFinished =
+    useLessonSessionStore(
+      (state) =>
+        state.markSessionFinished,
+    );
+
+  const [step, setStep] =
+    useState(0);
+
+  const [finished, setFinished] =
+    useState(false);
+
+  const [result, setResult] =
+    useState<LessonResult>(
+      EMPTY_RESULT,
+    );
+
+  /**
+   * When non-null, only these question IDs are traversed.
+   * This gives us an in-screen "retry wrong questions only"
+   * flow without changing navigation routes yet.
+   */
+  const [
+    retryQuestionIds,
+    setRetryQuestionIds,
+  ] = useState<string[] | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!chapter) {
       return;
     }
 
-    const restored = startOrResume(chapterId);
+    const restored =
+      startOrResume(chapterId);
+
+    if (restored.finishedAt) {
+      setResult(
+        calculateLessonResult(
+          chapter.activities,
+          restored,
+        ),
+      );
+      setFinished(true);
+      setRetryQuestionIds(null);
+      return;
+    }
+
     const safeStep = Math.min(
       restored.step,
-      Math.max(0, chapter.activities.length - 1),
+      Math.max(
+        0,
+        chapter.activities.length - 1,
+      ),
     );
 
     setStep(safeStep);
     setFinished(false);
-  }, [chapter, chapterId, startOrResume]);
+  }, [
+    chapter,
+    chapterId,
+    startOrResume,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -305,22 +440,55 @@ export default function LessonPlayerScreen({
     };
   }, []);
 
-  const activity = chapter?.activities[step];
+  const activity =
+    chapter?.activities[step];
+
   const completedActivityIds =
     session?.completedActivityIds ?? [];
-  const attemptsByActivity =
-    session?.attemptsByActivity ?? {};
 
-  const activityComplete = activity
-    ? !needsCompletion(activity) ||
-      completedActivityIds.includes(activity.id)
-    : false;
+  const currentQuestionResult =
+    activity && isQuizActivity(activity)
+      ? getQuestionResult(
+          session,
+          activity.id,
+        )
+      : undefined;
 
-  const progress = chapter?.activities.length
-    ? ((step + (activityComplete ? 1 : 0)) /
-        chapter.activities.length) *
-      100
-    : 0;
+  const activityCorrect =
+    activity && isQuizActivity(activity)
+      ? currentQuestionResult?.status ===
+        "correct"
+      : activity
+        ? completedActivityIds.includes(
+            activity.id,
+          )
+        : false;
+
+  /**
+   * Important:
+   * - correct => may advance
+   * - max attempts => may advance but remains NOT correct
+   */
+  const activityCanAdvance =
+    activity
+      ? isQuizActivity(activity)
+        ? activityCorrect ||
+          (currentQuestionResult?.runAttempts ??
+            0) >=
+            DEFAULT_MAX_QUIZ_ATTEMPTS
+        : !needsCompletion(activity) ||
+          completedActivityIds.includes(
+            activity.id,
+          )
+      : false;
+
+  const progress =
+    chapter?.activities.length
+      ? ((step +
+          (activityCanAdvance ? 1 : 0)) /
+          chapter.activities.length) *
+        100
+      : 0;
 
   const activityMeta = useMemo(
     () =>
@@ -334,10 +502,20 @@ export default function LessonPlayerScreen({
     [activity],
   );
 
-  const moveToStep = (nextStep: number) => {
+  const moveToStep = (
+    nextStep: number,
+  ) => {
     setStep(nextStep);
     saveStep(chapterId, nextStep);
     void Speech.stop();
+  };
+
+  const getFreshSession = () => {
+    return (
+      useLessonSessionStore.getState()
+        .sessions[chapterId] ??
+      startOrResume(chapterId)
+    );
   };
 
   const finishChapter = async () => {
@@ -345,37 +523,45 @@ export default function LessonPlayerScreen({
       return;
     }
 
-    const score = calculateQuizScore(
-      chapter.activities,
-      attemptsByActivity,
-    );
-    const stars =
-      score >= 90 ? 3 : score >= 70 ? 2 : 1;
-    const points =
-      stars === 3 ? 30 : stars === 2 ? 20 : 10;
+    const freshSession =
+      getFreshSession();
+
+    const summary =
+      calculateLessonResult(
+        chapter.activities,
+        freshSession,
+      );
 
     completeChapter({
       chapterId: chapter.id,
-      nextChapterId: chapter.nextChapterId,
-      starsEarned: stars,
-      quizScore: score,
+      nextChapterId:
+        chapter.nextChapterId,
+      starsEarned: summary.stars,
+      quizScore: summary.score,
     });
 
-    if (chapter.title === "আমার পরিচয়") {
-      addBadge("identity_expert");
+    if (
+      chapter.title ===
+      "আমার পরিচয়"
+    ) {
+      addBadge(
+        "identity_expert",
+      );
     }
 
     if (
       student &&
       isSupabaseConfigured &&
-      !student.id.startsWith("local-")
+      !student.id.startsWith(
+        "local-",
+      )
     ) {
       try {
         await progressService.completeChapter(
           student.id,
           chapter.id,
         );
-      
+
       } catch (syncError) {
   const message =
     syncError instanceof Error
@@ -394,36 +580,136 @@ export default function LessonPlayerScreen({
 
   return;
 }
-      
+
     }
 
-    setResult({
-      score,
-      points,
-      stars,
-    });
-    setFinished(true);
-    clearSession(chapterId);
-
-    void speakBangla(
-      `দারুণ করেছ! তুমি ${stars}টি তারা পেয়েছ।`,
+    /**
+     * Do NOT clear the session here.
+     * Progress/Retry needs questionResults after lesson completion.
+     */
+    markSessionFinished(
+      chapterId,
     );
+
+    setResult(summary);
+    setFinished(true);
+    setRetryQuestionIds(null);
+
+    if (
+      student?.classLevel === 1 &&
+      summary.totalQuestions > 0
+    ) {
+      void speakBangla(
+        `তোমার ${summary.totalQuestions}টির মধ্যে ${summary.correctQuestions}টি সঠিক হয়েছে। বাকি ${summary.needsRetryQuestions}টি আবার চেষ্টা করি।`,
+      );
+    } else if (
+      summary.totalQuestions > 0
+    ) {
+      void speakBangla(
+        `দারুণ চেষ্টা! ${summary.totalQuestions}টির মধ্যে ${summary.correctQuestions}টি সঠিক হয়েছে।`,
+      );
+    } else {
+      void speakBangla(
+        `দারুণ করেছ! তুমি ${summary.stars}টি তারা পেয়েছ।`,
+      );
+    }
   };
+
+  const markCurrentQuestionForRetryIfNeeded =
+    () => {
+      if (
+        !activity ||
+        !isQuizActivity(activity)
+      ) {
+        return;
+      }
+
+      const fresh =
+        getQuestionResult(
+          getFreshSession(),
+          activity.id,
+        );
+
+      if (
+        fresh?.status === "correct"
+      ) {
+        return;
+      }
+
+      if (
+        (fresh?.runAttempts ?? 0) >=
+        DEFAULT_MAX_QUIZ_ATTEMPTS
+      ) {
+        markQuestionNeedsRetry(
+          chapterId,
+          activity.id,
+        );
+      }
+    };
 
   const next = async () => {
     if (!chapter || !activity) {
       return;
     }
 
-    if (!activityComplete) {
+    if (!activityCanAdvance) {
       Alert.alert(
         "কাজটি শেষ করো",
-        "এই শেখার কাজটি শেষ করলে পরের ধাপে যেতে পারবে।",
+        isQuizActivity(activity)
+          ? `সঠিক উত্তর দাও, অথবা ${DEFAULT_MAX_QUIZ_ATTEMPTS} বার চেষ্টা করলে পরের প্রশ্নে যেতে পারবে।`
+          : "এই শেখার কাজটি শেষ করলে পরের ধাপে যেতে পারবে।",
       );
       return;
     }
 
-    if (step < chapter.activities.length - 1) {
+    if (isQuizActivity(activity)) {
+      markCurrentQuestionForRetryIfNeeded();
+    }
+
+    /**
+     * Retry mode:
+     * jump only among questions that were incorrect/incomplete.
+     */
+    if (
+      retryQuestionIds &&
+      retryQuestionIds.length > 0
+    ) {
+      const currentRetryIndex =
+        retryQuestionIds.indexOf(
+          activity.id,
+        );
+
+      if (
+        currentRetryIndex >= 0 &&
+        currentRetryIndex <
+          retryQuestionIds.length - 1
+      ) {
+        const nextQuestionId =
+          retryQuestionIds[
+            currentRetryIndex + 1
+          ];
+
+        const nextStep =
+          chapter.activities.findIndex(
+            (item) =>
+              item.id ===
+              nextQuestionId,
+          );
+
+        if (nextStep >= 0) {
+          moveToStep(nextStep);
+          return;
+        }
+      }
+
+      await finishChapter();
+      return;
+    }
+
+    if (
+      step <
+      chapter.activities.length - 1
+    ) {
       moveToStep(step + 1);
       return;
     }
@@ -432,6 +718,39 @@ export default function LessonPlayerScreen({
   };
 
   const goBack = () => {
+    if (
+      retryQuestionIds &&
+      retryQuestionIds.length > 0 &&
+      activity
+    ) {
+      const currentRetryIndex =
+        retryQuestionIds.indexOf(
+          activity.id,
+        );
+
+      if (currentRetryIndex > 0) {
+        const previousQuestionId =
+          retryQuestionIds[
+            currentRetryIndex - 1
+          ];
+
+        const previousStep =
+          chapter?.activities.findIndex(
+            (item) =>
+              item.id ===
+              previousQuestionId,
+          ) ?? -1;
+
+        if (previousStep >= 0) {
+          moveToStep(previousStep);
+          return;
+        }
+      }
+
+      navigation.goBack();
+      return;
+    }
+
     if (step > 0) {
       moveToStep(step - 1);
       return;
@@ -440,20 +759,97 @@ export default function LessonPlayerScreen({
     navigation.goBack();
   };
 
+  const retryWrongQuestions = () => {
+    if (!chapter) {
+      return;
+    }
+
+    const freshSession =
+      getFreshSession();
+
+    const questionIds =
+      chapter.activities
+        .filter(isQuizActivity)
+        .filter((item) => {
+          const question =
+            freshSession.questionResults[
+              item.id
+            ];
+
+          return (
+            question?.status !==
+            "correct"
+          );
+        })
+        .map((item) => item.id);
+
+    if (!questionIds.length) {
+      return;
+    }
+
+    for (const questionId of questionIds) {
+      resetQuestionForRetry(
+        chapterId,
+        questionId,
+      );
+    }
+
+    const firstStep =
+      chapter.activities.findIndex(
+        (item) =>
+          item.id ===
+          questionIds[0],
+      );
+
+    if (firstStep < 0) {
+      return;
+    }
+
+    setRetryQuestionIds(
+      questionIds,
+    );
+    setFinished(false);
+    moveToStep(firstStep);
+
+    void speakBangla(
+      `চলো বাকি ${questionIds.length}টি প্রশ্ন আবার চেষ্টা করি।`,
+    );
+  };
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.centerState}>
-          <View style={styles.loadingCircle}>
+      <SafeAreaView
+        style={styles.safe}
+      >
+        <View
+          style={
+            styles.centerState
+          }
+        >
+          <View
+            style={
+              styles.loadingCircle
+            }
+          >
             <ActivityIndicator
               size="large"
               color="#7653BD"
             />
           </View>
-          <Text style={styles.centerTitle}>
+
+          <Text
+            style={
+              styles.centerTitle
+            }
+          >
             পাঠ লোড হচ্ছে...
           </Text>
-          <Text style={styles.centerHelper}>
+
+          <Text
+            style={
+              styles.centerHelper
+            }
+          >
             একটু অপেক্ষা করো বন্ধু
           </Text>
         </View>
@@ -463,13 +859,35 @@ export default function LessonPlayerScreen({
 
   if (error) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.centerState}>
-          <Text style={styles.centerEmoji}>⚠️</Text>
-          <Text style={styles.centerTitle}>
+      <SafeAreaView
+        style={styles.safe}
+      >
+        <View
+          style={
+            styles.centerState
+          }
+        >
+          <Text
+            style={
+              styles.centerEmoji
+            }
+          >
+            ⚠️
+          </Text>
+
+          <Text
+            style={
+              styles.centerTitle
+            }
+          >
             পাঠটি লোড করা যায়নি
           </Text>
-          <Text style={styles.centerHelper}>
+
+          <Text
+            style={
+              styles.centerHelper
+            }
+          >
             {error}
           </Text>
 
@@ -477,10 +895,15 @@ export default function LessonPlayerScreen({
             onPress={retry}
             style={({ pressed }) => [
               styles.primaryButton,
-              pressed && styles.pressed,
+              pressed &&
+                styles.pressed,
             ]}
           >
-            <Text style={styles.primaryButtonText}>
+            <Text
+              style={
+                styles.primaryButtonText
+              }
+            >
               আবার চেষ্টা করি
             </Text>
           </Pressable>
@@ -491,21 +914,45 @@ export default function LessonPlayerScreen({
 
   if (!chapter || !activity) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.centerState}>
-          <Text style={styles.centerEmoji}>📭</Text>
-          <Text style={styles.centerTitle}>
+      <SafeAreaView
+        style={styles.safe}
+      >
+        <View
+          style={
+            styles.centerState
+          }
+        >
+          <Text
+            style={
+              styles.centerEmoji
+            }
+          >
+            📭
+          </Text>
+
+          <Text
+            style={
+              styles.centerTitle
+            }
+          >
             কোনো activity পাওয়া যায়নি
           </Text>
 
           <Pressable
-            onPress={() => navigation.goBack()}
+            onPress={() =>
+              navigation.goBack()
+            }
             style={({ pressed }) => [
               styles.primaryButton,
-              pressed && styles.pressed,
+              pressed &&
+                styles.pressed,
             ]}
           >
-            <Text style={styles.primaryButtonText}>
+            <Text
+              style={
+                styles.primaryButtonText
+              }
+            >
               Chapter list-এ ফিরি
             </Text>
           </Pressable>
@@ -516,13 +963,18 @@ export default function LessonPlayerScreen({
 
   if (finished) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView
+        style={styles.safe}
+      >
         <ScrollView
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={
+            false
+          }
           contentContainerStyle={[
             styles.rewardScroll,
             {
-              paddingHorizontal: horizontalPadding,
+              paddingHorizontal:
+                horizontalPadding,
             },
           ]}
         >
@@ -531,14 +983,28 @@ export default function LessonPlayerScreen({
               styles.rewardCard,
               {
                 maxWidth,
-                padding: isTablet ? 34 : 22,
+                padding: isTablet
+                  ? 34
+                  : 22,
               },
             ]}
           >
-            <View style={styles.rewardOrbOne} />
-            <View style={styles.rewardOrbTwo} />
+            <View
+              style={
+                styles.rewardOrbOne
+              }
+            />
+            <View
+              style={
+                styles.rewardOrbTwo
+              }
+            />
 
-            <Text style={styles.rewardConfetti}>
+            <Text
+              style={
+                styles.rewardConfetti
+              }
+            >
               ✦ 🎉 ✦
             </Text>
 
@@ -546,15 +1012,26 @@ export default function LessonPlayerScreen({
               style={[
                 styles.rewardGuideCircle,
                 {
-                  width: isTablet ? 245 : 190,
-                  height: isTablet ? 245 : 190,
-                  borderRadius: isTablet ? 123 : 95,
+                  width: isTablet
+                    ? 245
+                    : 190,
+                  height: isTablet
+                    ? 245
+                    : 190,
+                  borderRadius:
+                    isTablet
+                      ? 123
+                      : 95,
                 },
               ]}
             >
               <Image
-                source={require("../../../../assets/characters/mimi/waving.png")}
-                style={styles.rewardGuide}
+                source={require(
+                  "../../../../assets/characters/mimi/waving.png"
+                )}
+                style={
+                  styles.rewardGuide
+                }
                 resizeMode="contain"
               />
             </View>
@@ -562,61 +1039,219 @@ export default function LessonPlayerScreen({
             <Text
               style={[
                 styles.rewardTitle,
-                isTablet && styles.rewardTitleTablet,
+                isTablet &&
+                  styles.rewardTitleTablet,
               ]}
             >
-              দারুণ করেছ!
+              আজকের ফলাফল
             </Text>
 
-            <Text style={styles.rewardSubtitle}>
-              তুমি এই পাঠটি শেষ করেছ
+            <Text
+              style={
+                styles.rewardSubtitle
+              }
+            >
+              তুমি পাঠটি শেষ করেছ — বাকি প্রশ্ন পরে আবার করা যাবে
             </Text>
 
             <Text
               style={[
                 styles.rewardStars,
-                isTablet && styles.rewardStarsTablet,
+                isTablet &&
+                  styles.rewardStarsTablet,
               ]}
             >
-              {"⭐".repeat(result.stars)}
+              {"⭐".repeat(
+                result.stars,
+              )}
             </Text>
 
-            <View style={styles.resultRow}>
-              <View style={styles.resultBox}>
-                <Text style={styles.resultIcon}>🏆</Text>
-                <Text style={styles.resultValue}>
-                  {result.score}%
-                </Text>
-                <Text style={styles.resultLabel}>
-                  Quiz score
-                </Text>
-              </View>
+            {result.totalQuestions >
+            0 ? (
+              <>
+                <View
+                  style={
+                    styles.summaryGrid
+                  }
+                >
+                  <ResultStat
+                    icon="📝"
+                    value={
+                      result.totalQuestions
+                    }
+                    label="মোট প্রশ্ন"
+                  />
 
-              <View style={styles.resultBox}>
-                <Text style={styles.resultIcon}>✨</Text>
-                <Text style={styles.resultValue}>
-                  +{result.points}
+                  <ResultStat
+                    icon="✅"
+                    value={
+                      result.correctQuestions
+                    }
+                    label="সঠিক"
+                  />
+
+                  <ResultStat
+                    icon="🔁"
+                    value={
+                      result.needsRetryQuestions
+                    }
+                    label="আবার করতে হবে"
+                  />
+
+                  <ResultStat
+                    icon="🎯"
+                    value={
+                      result.totalAttempts
+                    }
+                    label="মোট চেষ্টা"
+                  />
+                </View>
+
+                <View
+                  style={
+                    styles.scoreStrip
+                  }
+                >
+                  <Text
+                    style={
+                      styles.scoreStripLabel
+                    }
+                  >
+                    Quiz score
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.scoreStripValue
+                    }
+                  >
+                    {result.score}%
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <View
+                style={
+                  styles.resultRow
+                }
+              >
+                <View
+                  style={
+                    styles.resultBox
+                  }
+                >
+                  <Text
+                    style={
+                      styles.resultIcon
+                    }
+                  >
+                    ✨
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.resultValue
+                    }
+                  >
+                    +{result.points}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.resultLabel
+                    }
+                  >
+                    Points
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {result.needsRetryQuestions >
+            0 ? (
+              <Pressable
+                onPress={
+                  retryWrongQuestions
+                }
+                style={({
+                  pressed,
+                }) => [
+                  styles.retryButton,
+                  pressed &&
+                    styles.pressed,
+                ]}
+              >
+                <Text
+                  style={
+                    styles.retryButtonIcon
+                  }
+                >
+                  🔁
                 </Text>
-                <Text style={styles.resultLabel}>
-                  Points
+
+                <Text
+                  style={
+                    styles.retryButtonText
+                  }
+                >
+                  ভুল ও অসম্পূর্ণ প্রশ্ন আবার করি
+                </Text>
+              </Pressable>
+            ) : (
+              <View
+                style={
+                  styles.allCorrectCard
+                }
+              >
+                <Text
+                  style={
+                    styles.allCorrectEmoji
+                  }
+                >
+                  🌟
+                </Text>
+
+                <Text
+                  style={
+                    styles.allCorrectText
+                  }
+                >
+                  সব প্রশ্ন সঠিক হয়েছে!
                 </Text>
               </View>
-            </View>
+            )}
 
             <Pressable
-              onPress={() => navigation.goBack()}
+              onPress={() =>
+                navigation.goBack()
+              }
               style={({ pressed }) => [
                 styles.rewardButton,
-                pressed && styles.pressed,
+                pressed &&
+                  styles.pressed,
               ]}
             >
-              <Text style={styles.rewardButtonIcon}>
+              <Text
+                style={
+                  styles.rewardButtonIcon
+                }
+              >
                 📚
               </Text>
-              <Text style={styles.rewardButtonText}>
+
+              <Text
+                style={
+                  styles.rewardButtonText
+                }
+              >
                 Chapter list-এ ফিরি
               </Text>
-              <Text style={styles.rewardButtonArrow}>
+
+              <Text
+                style={
+                  styles.rewardButtonArrow
+                }
+              >
                 ›
               </Text>
             </Pressable>
@@ -626,14 +1261,27 @@ export default function LessonPlayerScreen({
     );
   }
 
+  const headerStatusText =
+    activityCorrect
+      ? "✓ সম্পন্ন"
+      : isQuizActivity(activity) &&
+          activityCanAdvance
+        ? "↻ পরে আবার"
+        : "কাজ চলছে";
+
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.page}>
+    <SafeAreaView
+      style={styles.safe}
+    >
+      <View
+        style={styles.page}
+      >
         <View
           style={[
             styles.topShell,
             {
-              paddingHorizontal: horizontalPadding,
+              paddingHorizontal:
+                horizontalPadding,
             },
           ]}
         >
@@ -643,38 +1291,71 @@ export default function LessonPlayerScreen({
               { maxWidth },
             ]}
           >
-            <View style={styles.header}>
+            <View
+              style={
+                styles.header
+              }
+            >
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="পাঠ থেকে বের হই"
-                onPress={() => navigation.goBack()}
-                style={({ pressed }) => [
+                onPress={() =>
+                  navigation.goBack()
+                }
+                style={({
+                  pressed,
+                }) => [
                   styles.closeButton,
-                  pressed && styles.pressed,
+                  pressed &&
+                    styles.pressed,
                 ]}
               >
-                <Text style={styles.closeText}>×</Text>
+                <Text
+                  style={
+                    styles.closeText
+                  }
+                >
+                  ×
+                </Text>
               </Pressable>
 
-              <View style={styles.headerCopy}>
+              <View
+                style={
+                  styles.headerCopy
+                }
+              >
                 <Text
-                  style={styles.chapterTitle}
+                  style={
+                    styles.chapterTitle
+                  }
                   numberOfLines={1}
                   adjustsFontSizeToFit
-                  minimumFontScale={0.75}
+                  minimumFontScale={
+                    0.75
+                  }
                 >
                   {chapter.title}
                 </Text>
-                <Text style={styles.stepText}>
-                  ধাপ {step + 1} /{" "}
-                  {chapter.activities.length}
+
+                <Text
+                  style={
+                    styles.stepText
+                  }
+                >
+                  {retryQuestionIds
+                    ? `পুনরায় চেষ্টা • ${
+                        retryQuestionIds.indexOf(
+                          activity.id,
+                        ) + 1
+                      } / ${retryQuestionIds.length}`
+                    : `ধাপ ${step + 1} / ${chapter.activities.length}`}
                 </Text>
               </View>
 
               <View
                 style={[
                   styles.completionBadge,
-                  activityComplete
+                  activityCorrect
                     ? styles.completionBadgeDone
                     : styles.completionBadgeTodo,
                 ]}
@@ -682,19 +1363,21 @@ export default function LessonPlayerScreen({
                 <Text
                   style={[
                     styles.completionBadgeText,
-                    activityComplete
+                    activityCorrect
                       ? styles.completionTextDone
                       : styles.completionTextTodo,
                   ]}
                 >
-                  {activityComplete
-                    ? "✓ সম্পন্ন"
-                    : "কাজ চলছে"}
+                  {headerStatusText}
                 </Text>
               </View>
             </View>
 
-            <View style={styles.progressTrack}>
+            <View
+              style={
+                styles.progressTrack
+              }
+            >
               <View
                 style={[
                   styles.progressFill,
@@ -711,14 +1394,22 @@ export default function LessonPlayerScreen({
         </View>
 
         <ScrollView
-          style={styles.activityScroll}
-          showsVerticalScrollIndicator={false}
+          style={
+            styles.activityScroll
+          }
+          showsVerticalScrollIndicator={
+            false
+          }
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[
             styles.activityScrollContent,
             {
-              paddingHorizontal: horizontalPadding,
-              paddingBottom: isShortScreen ? 16 : 24,
+              paddingHorizontal:
+                horizontalPadding,
+              paddingBottom:
+                isShortScreen
+                  ? 16
+                  : 24,
             },
           ]}
         >
@@ -727,7 +1418,8 @@ export default function LessonPlayerScreen({
               styles.activityShell,
               {
                 maxWidth,
-                padding: activityPadding,
+                padding:
+                  activityPadding,
                 minHeight: isTablet
                   ? 560
                   : isShortScreen
@@ -736,20 +1428,49 @@ export default function LessonPlayerScreen({
               },
             ]}
           >
-            <View style={styles.activityHeader}>
-              <View style={styles.activityMeta}>
-                <View style={styles.activityIconCircle}>
-                  <Text style={styles.activityIcon}>
-                    {activityMeta.icon}
+            <View
+              style={
+                styles.activityHeader
+              }
+            >
+              <View
+                style={
+                  styles.activityMeta
+                }
+              >
+                <View
+                  style={
+                    styles.activityIconCircle
+                  }
+                >
+                  <Text
+                    style={
+                      styles.activityIcon
+                    }
+                  >
+                    {
+                      activityMeta.icon
+                    }
                   </Text>
                 </View>
 
                 <View>
-                  <Text style={styles.activityEyebrow}>
+                  <Text
+                    style={
+                      styles.activityEyebrow
+                    }
+                  >
                     ACTIVITY
                   </Text>
-                  <Text style={styles.activityLabel}>
-                    {activityMeta.label}
+
+                  <Text
+                    style={
+                      styles.activityLabel
+                    }
+                  >
+                    {
+                      activityMeta.label
+                    }
                   </Text>
                 </View>
               </View>
@@ -762,44 +1483,68 @@ export default function LessonPlayerScreen({
                     activityMeta.instruction,
                   )
                 }
-                style={({ pressed }) => [
+                style={({
+                  pressed,
+                }) => [
                   styles.listenButton,
-                  pressed && styles.pressed,
+                  pressed &&
+                    styles.pressed,
                 ]}
               >
-                <Text style={styles.listenIcon}>🔊</Text>
+                <Text
+                  style={
+                    styles.listenIcon
+                  }
+                >
+                  🔊
+                </Text>
+
                 {!isSmallPhone ? (
-                  <Text style={styles.listenText}>
+                  <Text
+                    style={
+                      styles.listenText
+                    }
+                  >
                     শুনি
                   </Text>
                 ) : null}
               </Pressable>
             </View>
 
-            <View style={styles.activityDivider} />
+            <View
+              style={
+                styles.activityDivider
+              }
+            />
 
-            <View style={styles.rendererWrap}>
+            <View
+              style={
+                styles.rendererWrap
+              }
+            >
               <ActivityRenderer
                 key={activity.id}
-                activity={activity}
-                attempts={
-                  attemptsByActivity[activity.id] ?? 0
+                activity={
+                  activity
                 }
-                completed={completedActivityIds.includes(
-                  activity.id,
-                )}
-                onAttempt={(correct) => {
-                  recordAttempt(
+                questionResult={
+                  currentQuestionResult
+                }
+                completed={
+                  completedActivityIds.includes(
+                    activity.id,
+                  )
+                }
+                onQuizAnswer={(
+                  selectedOption,
+                  correct,
+                ) => {
+                  recordQuestionAttempt(
                     chapterId,
                     activity.id,
+                    selectedOption,
+                    correct,
                   );
-
-                  if (correct) {
-                    markActivityComplete(
-                      chapterId,
-                      activity.id,
-                    );
-                  }
                 }}
                 onComplete={() => {
                   markActivityComplete(
@@ -816,7 +1561,8 @@ export default function LessonPlayerScreen({
           style={[
             styles.actionShell,
             {
-              paddingHorizontal: horizontalPadding,
+              paddingHorizontal:
+                horizontalPadding,
             },
           ]}
         >
@@ -829,13 +1575,27 @@ export default function LessonPlayerScreen({
             <Pressable
               accessibilityRole="button"
               onPress={goBack}
-              style={({ pressed }) => [
+              style={({
+                pressed,
+              }) => [
                 styles.backButton,
-                pressed && styles.pressed,
+                pressed &&
+                  styles.pressed,
               ]}
             >
-              <Text style={styles.backButtonIcon}>‹</Text>
-              <Text style={styles.backButtonText}>
+              <Text
+                style={
+                  styles.backButtonIcon
+                }
+              >
+                ‹
+              </Text>
+
+              <Text
+                style={
+                  styles.backButtonText
+                }
+              >
                 আগে
               </Text>
             </Pressable>
@@ -843,29 +1603,69 @@ export default function LessonPlayerScreen({
             <Pressable
               accessibilityRole="button"
               accessibilityState={{
-                disabled: !activityComplete,
+                disabled:
+                  !activityCanAdvance,
               }}
-              onPress={() => void next()}
-              style={({ pressed }) => [
+              onPress={() =>
+                void next()
+              }
+              style={({
+                pressed,
+              }) => [
                 styles.nextButton,
-                !activityComplete &&
+                !activityCanAdvance &&
                   styles.nextButtonDisabled,
                 pressed &&
-                  activityComplete &&
+                  activityCanAdvance &&
                   styles.nextButtonPressed,
               ]}
             >
-              <Text style={styles.nextButtonText}>
-                {step ===
-                chapter.activities.length - 1
-                  ? "শেষ করি"
-                  : "পরেরটি"}
+              <Text
+                style={
+                  styles.nextButtonText
+                }
+              >
+                {retryQuestionIds
+                  ? retryQuestionIds.indexOf(
+                        activity.id,
+                      ) ===
+                      retryQuestionIds.length -
+                        1
+                    ? "ফলাফল দেখি"
+                    : "পরের প্রশ্ন"
+                  : step ===
+                      chapter.activities.length -
+                        1
+                    ? "শেষ করি"
+                    : isQuizActivity(
+                          activity,
+                        ) &&
+                        !activityCorrect &&
+                        activityCanAdvance
+                      ? "পরের প্রশ্নে যাই"
+                      : "পরেরটি"}
               </Text>
 
-              <View style={styles.nextArrowCircle}>
-                <Text style={styles.nextArrow}>
-                  {step ===
-                  chapter.activities.length - 1
+              <View
+                style={
+                  styles.nextArrowCircle
+                }
+              >
+                <Text
+                  style={
+                    styles.nextArrow
+                  }
+                >
+                  {(!retryQuestionIds &&
+                    step ===
+                      chapter.activities.length -
+                        1) ||
+                  (retryQuestionIds &&
+                    retryQuestionIds.indexOf(
+                      activity.id,
+                    ) ===
+                      retryQuestionIds.length -
+                        1)
                     ? "✓"
                     : "→"}
                 </Text>
@@ -880,15 +1680,18 @@ export default function LessonPlayerScreen({
 
 function ActivityRenderer({
   activity,
-  attempts,
+  questionResult,
   completed,
-  onAttempt,
+  onQuizAnswer,
   onComplete,
 }: {
   activity: Activity;
-  attempts: number;
+  questionResult?: QuestionResult;
   completed: boolean;
-  onAttempt: (correct: boolean) => void;
+  onQuizAnswer: (
+    selectedOption: number,
+    correct: boolean,
+  ) => void;
   onComplete: () => void;
 }) {
   switch (activity.type) {
@@ -907,7 +1710,8 @@ function ActivityRenderer({
             title: activity.title,
             data: {
               lines: activity.lines,
-              buttonText: "পরেরটি 🚀",
+              buttonText:
+                "পরেরটি 🚀",
             },
           }}
           onComplete={onComplete}
@@ -932,11 +1736,15 @@ function ActivityRenderer({
         <ImageLessonActivity
           activity={{
             title: activity.title,
-            instruction: activity.instruction,
+            instruction:
+              activity.instruction,
             data: {
-              image: activity.imageUrl,
-              description: activity.instruction,
-              sourceLabel: activity.sourceLabel,
+              image:
+                activity.imageUrl,
+              description:
+                activity.instruction,
+              sourceLabel:
+                activity.sourceLabel,
             },
           }}
           completed={completed}
@@ -960,9 +1768,12 @@ function ActivityRenderer({
           activity={{
             title: "অক্ষর শিখি",
             data: {
-              letter: activity.letter,
-              sound: activity.sound,
-              examples: activity.examples,
+              letter:
+                activity.letter,
+              sound:
+                activity.sound,
+              examples:
+                activity.examples,
             },
           }}
           onComplete={onComplete}
@@ -975,9 +1786,12 @@ function ActivityRenderer({
           activity={{
             title: "শব্দ বানাই",
             data: {
-              prompt: activity.prompt,
-              letters: activity.letters,
-              answer: activity.answer,
+              prompt:
+                activity.prompt,
+              letters:
+                activity.letters,
+              answer:
+                activity.answer,
             },
           }}
           onComplete={onComplete}
@@ -989,8 +1803,10 @@ function ActivityRenderer({
         <TapCards
           activity={{
             payload: {
-              prompt: activity.prompt,
-              items: activity.items,
+              prompt:
+                activity.prompt,
+              items:
+                activity.items,
             },
           }}
           onComplete={onComplete}
@@ -998,26 +1814,31 @@ function ActivityRenderer({
       );
 
     case "flashcard":
-  return (
-    <FlashcardActivity
-      activity={{
-        payload: {
-          prompt: activity.prompt,
-          cards: activity.cards,
-        },
-      }}
-      onComplete={onComplete}
-    />
-  ); 
+      return (
+        <FlashcardActivity
+          activity={{
+            payload: {
+              prompt:
+                activity.prompt,
+              cards:
+                activity.cards,
+            },
+          }}
+          onComplete={onComplete}
+        />
+      );
 
     case "voice":
       return (
         <VoiceActivity
           activity={{
             payload: {
-              prompt: activity.prompt,
-              word: activity.word,
-              emoji: activity.emoji,
+              prompt:
+                activity.prompt,
+              word:
+                activity.word,
+              emoji:
+                activity.emoji,
             },
           }}
           onComplete={onComplete}
@@ -1029,8 +1850,10 @@ function ActivityRenderer({
         <MatchingActivity
           activity={{
             payload: {
-              prompt: activity.prompt,
-              pairs: activity.pairs,
+              prompt:
+                activity.prompt,
+              pairs:
+                activity.pairs,
             },
           }}
           onComplete={onComplete}
@@ -1041,11 +1864,15 @@ function ActivityRenderer({
       return (
         <PictureChoiceActivity
           activity={{
-            title: "ছবি চিনে নেই",
+            title:
+              "ছবি চিনে নেই",
             data: {
-              question: activity.question,
-              options: activity.options,
-              answer: activity.answer,
+              question:
+                activity.question,
+              options:
+                activity.options,
+              answer:
+                activity.answer,
             },
           }}
           onComplete={onComplete}
@@ -1057,43 +1884,86 @@ function ActivityRenderer({
         <DragGameActivity
           activity={{
             payload: {
-              prompt: activity.prompt,
-              items: activity.items,
+              prompt:
+                activity.prompt,
+              items:
+                activity.items,
             },
           }}
           onComplete={onComplete}
         />
       );
-     case "choice":
-  return (
-    <QuizBattleActivity
-      prompt={activity.prompt}
-      options={activity.options}
-      answer={activity.answer}
-      hint={activity.hint}
-      attempts={attempts}
-      onAttempt={onAttempt}
-    />
-  );
-  case "quiz":
-  return (
-    <QuizBattleActivity
-      prompt={activity.question}
-      options={activity.options}
-      answer={activity.answer}
-      hint={activity.hint}
-      attempts={attempts}
-      onAttempt={onAttempt}
-    />
-  );
 
+    case "choice":
+      return (
+        <QuizBattleActivity
+          prompt={activity.prompt}
+          options={activity.options}
+          answer={activity.answer}
+          hint={activity.hint}
+          attempts={
+            questionResult?.runAttempts ??
+            0
+          }
+          status={
+            questionResult?.status ??
+            "unanswered"
+          }
+          maxAttempts={
+            DEFAULT_MAX_QUIZ_ATTEMPTS
+          }
+          onAnswer={onQuizAnswer}
+        />
+      );
 
+    case "quiz":
+      return (
+        <QuizBattleActivity
+          prompt={
+            activity.question
+          }
+          options={
+            activity.options
+          }
+          answer={
+            activity.answer
+          }
+          hint={activity.hint}
+          attempts={
+            questionResult?.runAttempts ??
+            0
+          }
+          status={
+            questionResult?.status ??
+            "unanswered"
+          }
+          maxAttempts={
+            DEFAULT_MAX_QUIZ_ATTEMPTS
+          }
+          onAnswer={onQuizAnswer}
+        />
+      );
 
     default:
       return (
-        <View style={styles.unsupportedCard}>
-          <Text style={styles.centerEmoji}>🧩</Text>
-          <Text style={styles.centerHelper}>
+        <View
+          style={
+            styles.unsupportedCard
+          }
+        >
+          <Text
+            style={
+              styles.centerEmoji
+            }
+          >
+            🧩
+          </Text>
+
+          <Text
+            style={
+              styles.centerHelper
+            }
+          >
             এই activity দেখানো যাচ্ছে না।
           </Text>
         </View>
@@ -1101,828 +1971,762 @@ function ActivityRenderer({
   }
 }
 
-function QuestionActivity({
-  prompt,
-  options,
-  answer,
-  hint,
-  attempts,
-  onAttempt,
+function ResultStat({
+  icon,
+  value,
+  label,
 }: {
-  prompt: string;
-  options: string[];
-  answer: number;
-  hint: string;
-  attempts: number;
-  onAttempt: (correct: boolean) => void;
+  icon: string;
+  value: number;
+  label: string;
 }) {
-  const [selected, setSelected] =
-    useState<number | null>(null);
-  const [correct, setCorrect] = useState(false);
-
-  const choose = (index: number) => {
-    if (correct) {
-      return;
-    }
-
-    setSelected(index);
-
-    const result = index === answer;
-    setCorrect(result);
-    onAttempt(result);
-
-    if (result) {
-      void speakBangla(
-        "সঠিক উত্তর। দারুণ করেছ।",
-      );
-    } else {
-      void speakBangla(
-        "আরেকবার চেষ্টা করো।",
-      );
-    }
-  };
-
   return (
-    <View style={styles.questionWrap}>
-      <Text style={styles.questionTitle}>
-        {prompt}
+    <View
+      style={
+        styles.summaryBox
+      }
+    >
+      <Text
+        style={
+          styles.summaryIcon
+        }
+      >
+        {icon}
       </Text>
 
-      <Pressable
-        onPress={() => void speakBangla(prompt)}
-        style={({ pressed }) => [
-          styles.questionListenButton,
-          pressed && styles.pressed,
-        ]}
+      <Text
+        style={
+          styles.summaryValue
+        }
       >
-        <Text style={styles.questionListenText}>
-          🔊 প্রশ্নটি শুনি
-        </Text>
-      </Pressable>
+        {value}
+      </Text>
 
-      <View style={styles.optionList}>
-        {options.map((option, index) => {
-          const isSelected = selected === index;
-          const isCorrectAnswer =
-            correct && index === answer;
-
-          return (
-            <Pressable
-              key={`${option}-${index}`}
-              disabled={correct}
-              onPress={() => choose(index)}
-              style={({ pressed }) => [
-                styles.option,
-                isSelected &&
-                  !correct &&
-                  styles.wrongOption,
-                isCorrectAnswer &&
-                  styles.correctOption,
-                pressed &&
-                  !correct &&
-                  styles.optionPressed,
-              ]}
-            >
-              <View
-                style={[
-                  styles.optionLetterCircle,
-                  isCorrectAnswer &&
-                    styles.optionLetterCorrect,
-                  isSelected &&
-                    !correct &&
-                    styles.optionLetterWrong,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.optionLetter,
-                    (isCorrectAnswer ||
-                      (isSelected && !correct)) &&
-                      styles.optionLetterSelected,
-                  ]}
-                >
-                  {String.fromCharCode(65 + index)}
-                </Text>
-              </View>
-
-              <Text style={styles.optionText}>
-                {option}
-              </Text>
-
-              {isCorrectAnswer ? (
-                <Text style={styles.optionResult}>
-                  ✓
-                </Text>
-              ) : null}
-
-              {isSelected && !correct ? (
-                <Text
-                  style={[
-                    styles.optionResult,
-                    styles.optionResultWrong,
-                  ]}
-                >
-                  ×
-                </Text>
-              ) : null}
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {selected !== null && !correct ? (
-        <View style={styles.hintCard}>
-          <Text style={styles.hintIcon}>💡</Text>
-          <View style={styles.hintCopy}>
-            <Text style={styles.hintTitle}>
-              ইঙ্গিত
-            </Text>
-            <Text style={styles.hintText}>
-              {hint}
-            </Text>
-          </View>
-        </View>
-      ) : null}
-
-      {correct ? (
-        <View style={styles.successCard}>
-          <Text style={styles.successIcon}>🎉</Text>
-          <View>
-            <Text style={styles.successTitle}>
-              সঠিক উত্তর!
-            </Text>
-            <Text style={styles.successText}>
-              {Math.max(1, attempts + 1)} বার
-              চেষ্টা করে শেষ করেছ
-            </Text>
-          </View>
-        </View>
-      ) : null}
+      <Text
+        style={
+          styles.summaryLabel
+        }
+      >
+        {label}
+      </Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: "#F6F3F8",
-  },
-
-  page: {
-    flex: 1,
-    backgroundColor: "#F6F3F8",
-  },
-
-  topShell: {
-    paddingTop: 5,
-    paddingBottom: 9,
-    backgroundColor: "#F6F3F8",
-  },
-
-  topInner: {
-    width: "100%",
-    alignSelf: "center",
-  },
-
-  header: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  closeButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-  },
-
-  closeText: {
-    marginTop: -3,
-    fontSize: 30,
-    fontWeight: "500",
-    color: "#29242C",
-  },
-
-  headerCopy: {
-    flex: 1,
-    alignItems: "center",
-    marginHorizontal: 8,
-  },
-
-  chapterTitle: {
-    maxWidth: "100%",
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#201C22",
-  },
-
-  stepText: {
-    marginTop: 2,
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#817984",
-  },
-
-  completionBadge: {
-    minWidth: 68,
-    alignItems: "center",
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    borderRadius: 16,
-  },
-
-  completionBadgeDone: {
-    backgroundColor: "#DFF5DB",
-  },
-
-  completionBadgeTodo: {
-    backgroundColor: "#FFF0C8",
-  },
-
-  completionBadgeText: {
-    fontSize: 9,
-    fontWeight: "900",
-  },
-
-  completionTextDone: {
-    color: "#3C9236",
-  },
-
-  completionTextTodo: {
-    color: "#A36A00",
-  },
-
-  progressTrack: {
-    height: 8,
-    overflow: "hidden",
-    marginTop: 5,
-    borderRadius: 4,
-    backgroundColor: "#E5E1E8",
-  },
-
-  progressFill: {
-    height: "100%",
-    borderRadius: 4,
-    backgroundColor: "#7653BD",
-  },
-
-  activityScroll: {
-    flex: 1,
-  },
-
-  activityScrollContent: {
-    flexGrow: 1,
-    paddingTop: 3,
-  },
-
-  activityShell: {
-    width: "100%",
-    alignSelf: "center",
-    borderWidth: 1,
-    borderColor: "#E1DCE5",
-    borderRadius: 27,
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#77707C",
-    shadowOffset: {
-      width: 0,
-      height: 6,
+const styles =
+  StyleSheet.create({
+    safe: {
+      flex: 1,
+      backgroundColor:
+        "#F6F3F8",
     },
-    shadowOpacity: 0.09,
-    shadowRadius: 12,
-    elevation: 4,
-  },
 
-  activityHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-
-  activityMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  activityIconCircle: {
-    width: 46,
-    height: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 23,
-    backgroundColor: "#EEE6FF",
-  },
-
-  activityIcon: {
-    fontSize: 23,
-  },
-
-  activityEyebrow: {
-    marginLeft: 10,
-    fontSize: 8,
-    letterSpacing: 1.3,
-    fontWeight: "900",
-    color: "#9A919E",
-  },
-
-  activityLabel: {
-    marginTop: 2,
-    marginLeft: 10,
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#2B262D",
-  },
-
-  listenButton: {
-    minHeight: 39,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 11,
-    borderRadius: 20,
-    backgroundColor: "#E9F5FF",
-  },
-
-  listenIcon: {
-    fontSize: 15,
-  },
-
-  listenText: {
-    fontSize: 10,
-    fontWeight: "900",
-    color: "#2678A2",
-  },
-
-  activityDivider: {
-    height: 1,
-    marginTop: 13,
-    marginBottom: 16,
-    backgroundColor: "#EEEAF0",
-  },
-
-  rendererWrap: {
-    flex: 1,
-  },
-
-  actionShell: {
-    paddingTop: 8,
-    paddingBottom: 7,
-    backgroundColor: "#F6F3F8",
-  },
-
-  actions: {
-    width: "100%",
-    minHeight: 58,
-    flexDirection: "row",
-    alignSelf: "center",
-    gap: 9,
-  },
-
-  backButton: {
-    width: 102,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#D5CFD9",
-    borderRadius: 29,
-    backgroundColor: "#FFFFFF",
-  },
-
-  backButtonIcon: {
-    marginTop: -3,
-    marginRight: 5,
-    fontSize: 28,
-    color: "#322C35",
-  },
-
-  backButtonText: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: "#322C35",
-  },
-
-  nextButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingLeft: 21,
-    paddingRight: 7,
-    borderRadius: 29,
-    backgroundColor: "#1A171C",
-    shadowColor: "#1A171C",
-    shadowOffset: {
-      width: 0,
-      height: 6,
+    page: {
+      flex: 1,
+      backgroundColor:
+        "#F6F3F8",
     },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
-  },
 
-  nextButtonDisabled: {
-    backgroundColor: "#C8C3CC",
-    shadowOpacity: 0,
-    elevation: 0,
-  },
+    topShell: {
+      paddingTop: 5,
+      paddingBottom: 9,
+      backgroundColor:
+        "#F6F3F8",
+    },
 
-  nextButtonPressed: {
-    transform: [{ translateY: 2 }],
-  },
+    topInner: {
+      width: "100%",
+      alignSelf:
+        "center",
+    },
 
-  nextButtonText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
+    header: {
+      minHeight: 52,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+    },
 
-  nextArrowCircle: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 22,
-    backgroundColor: "#C98BFF",
-  },
+    closeButton: {
+      width: 40,
+      height: 40,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      borderRadius: 20,
+      backgroundColor:
+        "#FFFFFF",
+    },
 
-  nextArrow: {
-    fontSize: 19,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
+    closeText: {
+      marginTop: -3,
+      fontSize: 30,
+      fontWeight: "500",
+      color: "#29242C",
+    },
 
-  pressed: {
-    transform: [{ scale: 0.96 }],
-    opacity: 0.88,
-  },
+    headerCopy: {
+      flex: 1,
+      alignItems:
+        "center",
+      marginHorizontal: 8,
+    },
 
-  centerState: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-    backgroundColor: "#F6F3F8",
-  },
+    chapterTitle: {
+      maxWidth: "100%",
+      fontSize: 16,
+      fontWeight: "900",
+      color: "#201C22",
+    },
 
-  loadingCircle: {
-    width: 82,
-    height: 82,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 41,
-    backgroundColor: "#EEE6FF",
-  },
+    stepText: {
+      marginTop: 2,
+      fontSize: 10,
+      fontWeight: "800",
+      color: "#817984",
+    },
 
-  centerEmoji: {
-    fontSize: 42,
-  },
+    completionBadge: {
+      minWidth: 78,
+      alignItems:
+        "center",
+      paddingHorizontal: 9,
+      paddingVertical: 7,
+      borderRadius: 16,
+    },
 
-  centerTitle: {
-    marginTop: 13,
-    fontSize: 20,
-    fontWeight: "900",
-    color: "#28232A",
-    textAlign: "center",
-  },
+    completionBadgeDone: {
+      backgroundColor:
+        "#DFF5DB",
+    },
 
-  centerHelper: {
-    maxWidth: 360,
-    marginTop: 7,
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "700",
-    color: "#776E79",
-    textAlign: "center",
-  },
+    completionBadgeTodo: {
+      backgroundColor:
+        "#FFF0C8",
+    },
 
-  primaryButton: {
-    marginTop: 18,
-    paddingHorizontal: 21,
-    paddingVertical: 13,
-    borderRadius: 21,
-    backgroundColor: "#1A171C",
-  },
+    completionBadgeText: {
+      fontSize: 9,
+      fontWeight: "900",
+    },
 
-  primaryButtonText: {
-    fontSize: 12,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
+    completionTextDone: {
+      color: "#3C9236",
+    },
 
-  rewardScroll: {
-    flexGrow: 1,
-    justifyContent: "center",
-    paddingVertical: 18,
-    backgroundColor: "#F6F3F8",
-  },
+    completionTextTodo: {
+      color: "#A36A00",
+    },
 
-  rewardCard: {
-    position: "relative",
-    width: "100%",
-    alignSelf: "center",
-    alignItems: "center",
-    overflow: "hidden",
-    borderRadius: 34,
-    backgroundColor: "#CBBBF2",
-  },
+    progressTrack: {
+      height: 8,
+      overflow:
+        "hidden",
+      marginTop: 5,
+      borderRadius: 4,
+      backgroundColor:
+        "#E5E1E8",
+    },
 
-  rewardOrbOne: {
-    position: "absolute",
-    top: -75,
-    right: -60,
-    width: 210,
-    height: 210,
-    borderRadius: 105,
-    backgroundColor: "rgba(255,255,255,0.23)",
-  },
+    progressFill: {
+      height: "100%",
+      borderRadius: 4,
+      backgroundColor:
+        "#7653BD",
+    },
 
-  rewardOrbTwo: {
-    position: "absolute",
-    left: -62,
-    bottom: -72,
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: "rgba(255,255,255,0.2)",
-  },
+    activityScroll: {
+      flex: 1,
+    },
 
-  rewardConfetti: {
-    fontSize: 27,
-    color: "#FFFFFF",
-  },
+    activityScrollContent: {
+      flexGrow: 1,
+      paddingTop: 3,
+    },
 
-  rewardGuideCircle: {
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 5,
-    backgroundColor: "rgba(255,255,255,0.42)",
-  },
+    activityShell: {
+      width: "100%",
+      alignSelf:
+        "center",
+      borderWidth: 1,
+      borderColor:
+        "#E1DCE5",
+      borderRadius: 27,
+      backgroundColor:
+        "#FFFFFF",
+      shadowColor:
+        "#77707C",
+      shadowOffset: {
+        width: 0,
+        height: 6,
+      },
+      shadowOpacity: 0.09,
+      shadowRadius: 12,
+      elevation: 4,
+    },
 
-  rewardGuide: {
-    width: "100%",
-    height: "100%",
-  },
+    activityHeader: {
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      justifyContent:
+        "space-between",
+    },
 
-  rewardTitle: {
-    marginTop: 4,
-    fontSize: 31,
-    fontWeight: "900",
-    color: "#171419",
-  },
+    activityMeta: {
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+    },
 
-  rewardTitleTablet: {
-    fontSize: 40,
-  },
+    activityIconCircle: {
+      width: 46,
+      height: 46,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      borderRadius: 23,
+      backgroundColor:
+        "#EEE6FF",
+    },
 
-  rewardSubtitle: {
-    marginTop: 4,
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#554960",
-  },
+    activityIcon: {
+      fontSize: 23,
+    },
 
-  rewardStars: {
-    marginTop: 11,
-    fontSize: 34,
-  },
+    activityEyebrow: {
+      marginLeft: 10,
+      fontSize: 8,
+      letterSpacing: 1.3,
+      fontWeight: "900",
+      color: "#9A919E",
+    },
 
-  rewardStarsTablet: {
-    fontSize: 43,
-  },
+    activityLabel: {
+      marginTop: 2,
+      marginLeft: 10,
+      fontSize: 15,
+      fontWeight: "900",
+      color: "#2B262D",
+    },
 
-  resultRow: {
-    width: "100%",
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 18,
-  },
+    listenButton: {
+      minHeight: 39,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      gap: 5,
+      paddingHorizontal: 11,
+      borderRadius: 20,
+      backgroundColor:
+        "#E9F5FF",
+    },
 
-  resultBox: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 14,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.78)",
-  },
+    listenIcon: {
+      fontSize: 15,
+    },
 
-  resultIcon: {
-    fontSize: 24,
-  },
+    listenText: {
+      fontSize: 10,
+      fontWeight: "900",
+      color: "#2678A2",
+    },
 
-  resultValue: {
-    marginTop: 4,
-    fontSize: 21,
-    fontWeight: "900",
-    color: "#28232A",
-  },
+    activityDivider: {
+      height: 1,
+      marginTop: 13,
+      marginBottom: 16,
+      backgroundColor:
+        "#EEEAF0",
+    },
 
-  resultLabel: {
-    marginTop: 2,
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#746A79",
-  },
+    rendererWrap: {
+      flex: 1,
+    },
 
-  rewardButton: {
-    width: "100%",
-    minHeight: 62,
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 18,
-    paddingHorizontal: 8,
-    borderRadius: 31,
-    backgroundColor: "#1A171C",
-  },
+    actionShell: {
+      paddingTop: 8,
+      paddingBottom: 7,
+      backgroundColor:
+        "#F6F3F8",
+    },
 
-  rewardButtonIcon: {
-    width: 46,
-    textAlign: "center",
-    fontSize: 22,
-  },
+    actions: {
+      width: "100%",
+      minHeight: 58,
+      flexDirection:
+        "row",
+      alignSelf:
+        "center",
+      gap: 9,
+    },
 
-  rewardButtonText: {
-    flex: 1,
-    marginLeft: 7,
-    fontSize: 14,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
+    backButton: {
+      width: 102,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      borderWidth: 2,
+      borderColor:
+        "#D5CFD9",
+      borderRadius: 29,
+      backgroundColor:
+        "#FFFFFF",
+    },
 
-  rewardButtonArrow: {
-    marginRight: 16,
-    fontSize: 28,
-    color: "#FFFFFF",
-  },
+    backButtonIcon: {
+      marginTop: -3,
+      marginRight: 5,
+      fontSize: 28,
+      color: "#322C35",
+    },
 
-  questionWrap: {
-    width: "100%",
-  },
+    backButtonText: {
+      fontSize: 13,
+      fontWeight: "900",
+      color: "#322C35",
+    },
 
-  questionTitle: {
-    fontSize: 22,
-    lineHeight: 30,
-    fontWeight: "900",
-    color: "#242027",
-    textAlign: "center",
-  },
+    nextButton: {
+      flex: 1,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      paddingLeft: 21,
+      paddingRight: 7,
+      borderRadius: 29,
+      backgroundColor:
+        "#1A171C",
+      shadowColor:
+        "#1A171C",
+      shadowOffset: {
+        width: 0,
+        height: 6,
+      },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      elevation: 6,
+    },
 
-  questionListenButton: {
-    alignSelf: "center",
-    marginTop: 11,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 18,
-    backgroundColor: "#E7F4FF",
-  },
+    nextButtonDisabled: {
+      backgroundColor:
+        "#C8C3CC",
+      shadowOpacity: 0,
+      elevation: 0,
+    },
 
-  questionListenText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: "#2678A2",
-  },
+    nextButtonPressed: {
+      transform: [
+        {
+          translateY: 2,
+        },
+      ],
+    },
 
-  optionList: {
-    gap: 10,
-    marginTop: 18,
-  },
+    nextButtonText: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: "900",
+      color: "#FFFFFF",
+    },
 
-  option: {
-    minHeight: 62,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 11,
-    paddingVertical: 9,
-    borderWidth: 2,
-    borderColor: "#D8D1DD",
-    borderBottomWidth: 5,
-    borderRadius: 21,
-    backgroundColor: "#FAF9FB",
-  },
+    nextArrowCircle: {
+      width: 44,
+      height: 44,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      borderRadius: 22,
+      backgroundColor:
+        "#C98BFF",
+    },
 
-  correctOption: {
-    borderColor: "#58B84D",
-    backgroundColor: "#E5F8E1",
-  },
+    nextArrow: {
+      fontSize: 19,
+      fontWeight: "900",
+      color: "#FFFFFF",
+    },
 
-  wrongOption: {
-    borderColor: "#E17373",
-    backgroundColor: "#FFE8E8",
-  },
+    pressed: {
+      transform: [
+        {
+          scale: 0.96,
+        },
+      ],
+      opacity: 0.88,
+    },
 
-  optionPressed: {
-    transform: [{ translateY: 2 }],
-  },
+    centerState: {
+      flex: 1,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      paddingHorizontal: 24,
+      backgroundColor:
+        "#F6F3F8",
+    },
 
-  optionLetterCircle: {
-    width: 39,
-    height: 39,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 20,
-    backgroundColor: "#EEE9F1",
-  },
+    loadingCircle: {
+      width: 82,
+      height: 82,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      borderRadius: 41,
+      backgroundColor:
+        "#EEE6FF",
+    },
 
-  optionLetterCorrect: {
-    backgroundColor: "#58B84D",
-  },
+    centerEmoji: {
+      fontSize: 42,
+    },
 
-  optionLetterWrong: {
-    backgroundColor: "#E17373",
-  },
+    centerTitle: {
+      marginTop: 13,
+      fontSize: 20,
+      fontWeight: "900",
+      color: "#28232A",
+      textAlign:
+        "center",
+    },
 
-  optionLetter: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: "#5F5664",
-  },
+    centerHelper: {
+      maxWidth: 360,
+      marginTop: 7,
+      fontSize: 12,
+      lineHeight: 18,
+      fontWeight: "700",
+      color: "#776E79",
+      textAlign:
+        "center",
+    },
 
-  optionLetterSelected: {
-    color: "#FFFFFF",
-  },
+    primaryButton: {
+      marginTop: 18,
+      paddingHorizontal: 21,
+      paddingVertical: 13,
+      borderRadius: 21,
+      backgroundColor:
+        "#1A171C",
+    },
 
-  optionText: {
-    flex: 1,
-    marginHorizontal: 11,
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#2D282F",
-  },
+    primaryButtonText: {
+      fontSize: 12,
+      fontWeight: "900",
+      color: "#FFFFFF",
+    },
 
-  optionResult: {
-    fontSize: 20,
-    fontWeight: "900",
-    color: "#459B3E",
-  },
+    rewardScroll: {
+      flexGrow: 1,
+      justifyContent:
+        "center",
+      paddingVertical: 18,
+      backgroundColor:
+        "#F6F3F8",
+    },
 
-  optionResultWrong: {
-    color: "#C85050",
-  },
+    rewardCard: {
+      position:
+        "relative",
+      width: "100%",
+      alignSelf:
+        "center",
+      alignItems:
+        "center",
+      overflow:
+        "hidden",
+      borderRadius: 34,
+      backgroundColor:
+        "#CBBBF2",
+    },
 
-  hintCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 14,
-    padding: 13,
-    borderRadius: 19,
-    backgroundColor: "#FFF3CC",
-  },
+    rewardOrbOne: {
+      position:
+        "absolute",
+      top: -75,
+      right: -60,
+      width: 210,
+      height: 210,
+      borderRadius: 105,
+      backgroundColor:
+        "rgba(255,255,255,0.23)",
+    },
 
-  hintIcon: {
-    fontSize: 24,
-  },
+    rewardOrbTwo: {
+      position:
+        "absolute",
+      left: -62,
+      bottom: -72,
+      width: 190,
+      height: 190,
+      borderRadius: 95,
+      backgroundColor:
+        "rgba(255,255,255,0.2)",
+    },
 
-  hintCopy: {
-    flex: 1,
-    marginLeft: 10,
-  },
+    rewardConfetti: {
+      fontSize: 27,
+      color: "#FFFFFF",
+    },
 
-  hintTitle: {
-    fontSize: 10,
-    fontWeight: "900",
-    color: "#976700",
-  },
+    rewardGuideCircle: {
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      marginTop: 5,
+      backgroundColor:
+        "rgba(255,255,255,0.42)",
+    },
 
-  hintText: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "800",
-    color: "#5E4D27",
-  },
+    rewardGuide: {
+      width: "100%",
+      height: "100%",
+    },
 
-  successCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 14,
-    padding: 13,
-    borderRadius: 19,
-    backgroundColor: "#E1F6DD",
-  },
+    rewardTitle: {
+      marginTop: 4,
+      fontSize: 31,
+      fontWeight: "900",
+      color: "#171419",
+      textAlign: "center",
+    },
 
-  successIcon: {
-    marginRight: 10,
-    fontSize: 27,
-  },
+    rewardTitleTablet: {
+      fontSize: 40,
+    },
 
-  successTitle: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: "#3F9138",
-  },
+    rewardSubtitle: {
+      maxWidth: 480,
+      marginTop: 4,
+      fontSize: 13,
+      lineHeight: 19,
+      fontWeight: "800",
+      color: "#554960",
+      textAlign: "center",
+    },
 
-  successText: {
-    marginTop: 2,
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#5C7858",
-  },
+    rewardStars: {
+      marginTop: 11,
+      fontSize: 34,
+    },
 
-  unsupportedCard: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 240,
-  },
-});
+    rewardStarsTablet: {
+      fontSize: 43,
+    },
+
+    summaryGrid: {
+      width: "100%",
+      flexDirection:
+        "row",
+      flexWrap: "wrap",
+      gap: 10,
+      marginTop: 18,
+    },
+
+    summaryBox: {
+      width: "48%",
+      flexGrow: 1,
+      alignItems:
+        "center",
+      paddingVertical: 13,
+      paddingHorizontal: 8,
+      borderRadius: 20,
+      backgroundColor:
+        "rgba(255,255,255,0.78)",
+    },
+
+    summaryIcon: {
+      fontSize: 21,
+    },
+
+    summaryValue: {
+      marginTop: 3,
+      fontSize: 20,
+      fontWeight: "900",
+      color: "#28232A",
+    },
+
+    summaryLabel: {
+      marginTop: 2,
+      fontSize: 9,
+      fontWeight: "800",
+      color: "#746A79",
+      textAlign: "center",
+    },
+
+    scoreStrip: {
+      width: "100%",
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      justifyContent:
+        "space-between",
+      marginTop: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 19,
+      backgroundColor:
+        "rgba(255,255,255,0.58)",
+    },
+
+    scoreStripLabel: {
+      fontSize: 11,
+      fontWeight: "900",
+      color: "#65596D",
+    },
+
+    scoreStripValue: {
+      fontSize: 18,
+      fontWeight: "900",
+      color: "#2C2630",
+    },
+
+    resultRow: {
+      width: "100%",
+      flexDirection:
+        "row",
+      gap: 10,
+      marginTop: 18,
+    },
+
+    resultBox: {
+      flex: 1,
+      alignItems:
+        "center",
+      paddingVertical: 14,
+      borderRadius: 22,
+      backgroundColor:
+        "rgba(255,255,255,0.78)",
+    },
+
+    resultIcon: {
+      fontSize: 24,
+    },
+
+    resultValue: {
+      marginTop: 4,
+      fontSize: 21,
+      fontWeight: "900",
+      color: "#28232A",
+    },
+
+    resultLabel: {
+      marginTop: 2,
+      fontSize: 9,
+      fontWeight: "800",
+      color: "#746A79",
+    },
+
+    retryButton: {
+      width: "100%",
+      minHeight: 62,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      marginTop: 18,
+      paddingHorizontal: 16,
+      borderRadius: 31,
+      backgroundColor:
+        "#4F3C8C",
+    },
+
+    retryButtonIcon: {
+      marginRight: 9,
+      fontSize: 21,
+    },
+
+    retryButtonText: {
+      flexShrink: 1,
+      fontSize: 13,
+      fontWeight: "900",
+      color: "#FFFFFF",
+      textAlign: "center",
+    },
+
+    allCorrectCard: {
+      width: "100%",
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      marginTop: 18,
+      paddingVertical: 13,
+      borderRadius: 20,
+      backgroundColor:
+        "rgba(232,250,226,0.86)",
+    },
+
+    allCorrectEmoji: {
+      marginRight: 8,
+      fontSize: 22,
+    },
+
+    allCorrectText: {
+      fontSize: 13,
+      fontWeight: "900",
+      color: "#39733C",
+    },
+
+    rewardButton: {
+      width: "100%",
+      minHeight: 62,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      marginTop: 10,
+      paddingHorizontal: 8,
+      borderRadius: 31,
+      backgroundColor:
+        "#1A171C",
+    },
+
+    rewardButtonIcon: {
+      width: 46,
+      textAlign:
+        "center",
+      fontSize: 22,
+    },
+
+    rewardButtonText: {
+      flex: 1,
+      marginLeft: 7,
+      fontSize: 14,
+      fontWeight: "900",
+      color: "#FFFFFF",
+    },
+
+    rewardButtonArrow: {
+      marginRight: 16,
+      fontSize: 28,
+      color: "#FFFFFF",
+    },
+
+    unsupportedCard: {
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      minHeight: 240,
+    },
+  });
