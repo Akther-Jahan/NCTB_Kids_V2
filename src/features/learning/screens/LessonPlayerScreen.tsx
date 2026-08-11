@@ -33,6 +33,7 @@ import {
 import AudioStoryActivity from "../components/AudioStoryActivity";
 import LetterActivity from "../components/LetterActivity";
 import WordBuildActivity from "../components/WordBuildActivity";
+import MissingLetterActivity from "../components/MissingLetterActivity";
 import PictureChoiceActivity from "../components/PictureChoiceActivity";
 import DragGameActivity from "../components/DragGameActivity";
 import FlashcardActivity from "../components/FlashcardActivity";
@@ -94,6 +95,7 @@ function needsCompletion(activity: Activity) {
     "image_lesson",
     "video",
     "word_build",
+    "missing_letter",
     "tap",
     "flashcard",
     "voice",
@@ -212,6 +214,13 @@ function getActivityMeta(activity: Activity) {
       return {
         icon: "🧩",
         label: "শব্দ বানাই",
+        instruction: activity.prompt,
+      };
+
+    case "missing_letter":
+      return {
+        icon: "🔎",
+        label: "হারানো অক্ষর",
         instruction: activity.prompt,
       };
 
@@ -1792,6 +1801,34 @@ function ActivityRenderer({
                 activity.letters,
               answer:
                 activity.answer,
+            },
+          }}
+          onComplete={onComplete}
+        />
+      );
+
+    case "missing_letter":
+      return (
+        <MissingLetterActivity
+          activity={{
+            title: "হারানো অক্ষর",
+            instruction:
+              activity.prompt,
+            data: {
+              prompt:
+                activity.prompt,
+              wordParts:
+                activity.wordParts,
+              missingIndex:
+                activity.missingIndex,
+              options:
+                activity.options,
+              answer:
+                activity.answer,
+              emoji:
+                activity.emoji,
+              hint:
+                activity.hint,
             },
           }}
           onComplete={onComplete}

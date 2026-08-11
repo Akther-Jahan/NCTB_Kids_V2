@@ -17,31 +17,23 @@ import * as Speech from "expo-speech";
 
 import MimiCharacter from "./MimiCharacter";
 
+type SlotValue = number | null;
+
+type WordOrderData = {
+  prompt: string;
+  words: string[];
+  answer: string[];
+  hint?: string;
+};
+
 type Props = {
   activity: {
     title?: string;
     instruction?: string;
-    data: {
-      prompt: string;
-      letters: string[];
-      answer: string;
-    };
+    data: WordOrderData;
   };
   onComplete: () => void;
 };
-
-type SlotValue = number | null;
-
-type DropSource =
-  | {
-      kind: "bank";
-      letterIndex: number;
-    }
-  | {
-      kind: "slot";
-      letterIndex: number;
-      slotIndex: number;
-    };
 
 type SlotRect = {
   index: number;
@@ -51,13 +43,24 @@ type SlotRect = {
   height: number;
 };
 
-type DraggableLetterProps = {
-  letter: string;
+type DropSource =
+  | {
+      kind: "bank";
+      wordIndex: number;
+    }
+  | {
+      kind: "slot";
+      wordIndex: number;
+      slotIndex: number;
+    };
+
+type DraggableWordProps = {
+  word: string;
+  compact?: boolean;
   disabled?: boolean;
   selected?: boolean;
   wrong?: boolean;
   correct?: boolean;
-  compact?: boolean;
   onSpeak: () => void;
   onTap: () => void;
   onDrop: (
@@ -73,112 +76,36 @@ function speakBangla(
 
   Speech.speak(text, {
     language: "bn-BD",
-    rate: 0.74,
-    pitch: 1.05,
+    rate: 0.76,
+    pitch: 1.03,
     volume: 1,
   });
 }
 
-function arraysEqual(
+function sameSlots(
   a: SlotValue[],
   b: SlotValue[],
 ) {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  return a.every(
-    (value, index) =>
-      value === b[index],
+  return (
+    a.length === b.length &&
+    a.every(
+      (value, index) =>
+        value === b[index],
+    )
   );
 }
 
-/**
- * Finds an order of the provided letter tiles whose joined value
- * exactly matches the answer. This is safer for Bangla than splitting
- * the answer into individual Unicode code points.
- */
-function findAnswerOrder(
-  letters: string[],
-  answer: string,
-): number[] | null {
-  const used =
-    Array<boolean>(
-      letters.length,
-    ).fill(false);
-
-  const order: number[] = [];
-
-  function search(
-    built: string,
-  ): boolean {
-    if (
-      built === answer &&
-      order.length ===
-        letters.length
-    ) {
-      return true;
-    }
-
-    if (
-      order.length >=
-      letters.length
-    ) {
-      return false;
-    }
-
-    for (
-      let index = 0;
-      index <
-      letters.length;
-      index += 1
-    ) {
-      if (used[index]) {
-        continue;
-      }
-
-      const next =
-        built +
-        letters[index];
-
-      if (
-        !answer.startsWith(
-          next,
-        )
-      ) {
-        continue;
-      }
-
-      used[index] = true;
-      order.push(index);
-
-      if (search(next)) {
-        return true;
-      }
-
-      order.pop();
-      used[index] = false;
-    }
-
-    return false;
-  }
-
-  return search("")
-    ? [...order]
-    : null;
-}
-
-function DraggableLetter({
-  letter,
+function DraggableWord({
+  word,
+  compact = false,
   disabled = false,
   selected = false,
   wrong = false,
   correct = false,
-  compact = false,
   onSpeak,
   onTap,
   onDrop,
-}: DraggableLetterProps) {
+}: DraggableWordProps) {
   const pan = useRef(
     new Animated.ValueXY(),
   ).current;
@@ -252,10 +179,10 @@ function DraggableLetter({
                     x: 0,
                     y: 0,
                   },
+                  friction: 7,
+                  tension: 80,
                   useNativeDriver:
                     true,
-                  friction: 6,
-                  tension: 80,
                 },
               ).start();
 
@@ -299,7 +226,7 @@ function DraggableLetter({
     <Animated.View
       accessible
       accessibilityRole="button"
-      accessibilityLabel={`${letter} অক্ষর`}
+      accessibilityLabel={`${word} শব্দ`}
       accessibilityState={{
         disabled,
         selected,
@@ -311,19 +238,19 @@ function DraggableLetter({
       }
       {...panResponder.panHandlers}
       style={[
-        styles.draggableTile,
+        styles.wordTile,
         compact &&
-          styles.draggableTileCompact,
+          styles.wordTileCompact,
         selected &&
-          styles.draggableTileSelected,
+          styles.wordTileSelected,
         wrong &&
-          styles.draggableTileWrong,
+          styles.wordTileWrong,
         correct &&
-          styles.draggableTileCorrect,
+          styles.wordTileCorrect,
         disabled &&
-          styles.draggableTileDisabled,
+          styles.wordTileDisabled,
         dragging &&
-          styles.draggableTileDragging,
+          styles.wordTileDragging,
         {
           transform: [
             {
@@ -336,7 +263,7 @@ function DraggableLetter({
             },
             {
               scale: dragging
-                ? 1.08
+                ? 1.06
                 : 1,
             },
           ],
@@ -345,22 +272,22 @@ function DraggableLetter({
     >
       <Text
         style={[
-          styles.draggableLetter,
+          styles.wordTileText,
           compact &&
-            styles.draggableLetterCompact,
+            styles.wordTileTextCompact,
           selected &&
-            styles.draggableLetterSelected,
+            styles.wordTileTextSelected,
           correct &&
-            styles.draggableLetterCorrect,
+            styles.wordTileTextCorrect,
         ]}
       >
-        {letter}
+        {word}
       </Text>
 
       {!compact ? (
         <Text
           style={
-            styles.dragHint
+            styles.dragDots
           }
         >
           ⋮⋮
@@ -370,7 +297,7 @@ function DraggableLetter({
   );
 }
 
-export default function WordBuildActivity({
+export default function WordOrderActivity({
   activity,
   onComplete,
 }: Props) {
@@ -386,46 +313,39 @@ export default function WordBuildActivity({
   const { data } =
     activity;
 
-  const answerOrder =
-    useMemo(
-      () =>
-        findAnswerOrder(
-          data.letters,
-          data.answer,
-        ),
-      [
-        data.answer,
-        data.letters,
-      ],
+  const answerLength =
+    data.answer.length;
+
+  const slotCount =
+    Math.max(
+      answerLength,
+      data.words.length,
     );
 
-  const expectedLetters =
-    useMemo(
+  const initialSlots =
+    useMemo<SlotValue[]>(
       () =>
-        answerOrder
-          ? answerOrder.map(
-              (index) =>
-                data.letters[
-                  index
-                ],
-            )
-          : null,
-      [
-        answerOrder,
-        data.letters,
-      ],
+        Array<SlotValue>(
+          slotCount,
+        ).fill(null),
+      [slotCount],
     );
 
   const entrance = useRef(
     new Animated.Value(0),
   ).current;
 
-  const answerScale = useRef(
-    new Animated.Value(1),
-  ).current;
-
   const shake = useRef(
     new Animated.Value(0),
+  ).current;
+
+  const successScale =
+    useRef(
+      new Animated.Value(1),
+    ).current;
+
+  const rewardY = useRef(
+    new Animated.Value(-90),
   ).current;
 
   const completedRef =
@@ -442,15 +362,6 @@ export default function WordBuildActivity({
     >
   >([]);
 
-  const initialSlots =
-    useMemo<SlotValue[]>(
-      () =>
-        Array<SlotValue>(
-          data.letters.length,
-        ).fill(null),
-      [data.letters.length],
-    );
-
   const [
     slots,
     setSlots,
@@ -466,6 +377,11 @@ export default function WordBuildActivity({
   );
 
   const [
+    checked,
+    setChecked,
+  ] = useState(false);
+
+  const [
     wrongSlots,
     setWrongSlots,
   ] = useState<Set<number>>(
@@ -473,13 +389,13 @@ export default function WordBuildActivity({
   );
 
   const [
-    checked,
-    setChecked,
+    completed,
+    setCompleted,
   ] = useState(false);
 
   const [
-    completed,
-    setCompleted,
+    showHint,
+    setShowHint,
   ] = useState(false);
 
   useEffect(() => {
@@ -488,57 +404,19 @@ export default function WordBuildActivity({
   }, [onComplete]);
 
   useEffect(() => {
-    setSlots(initialSlots);
+    setSlots(
+      initialSlots,
+    );
     setHistory([]);
+    setChecked(false);
     setWrongSlots(
       new Set(),
     );
-    setChecked(false);
     setCompleted(false);
+    setShowHint(false);
     completedRef.current =
       false;
   }, [initialSlots]);
-
-  const selectedCount =
-    slots.filter(
-      (value) =>
-        value !== null,
-    ).length;
-
-  const word =
-    slots
-      .map((value) =>
-        value === null
-          ? ""
-          : data.letters[
-              value
-            ],
-      )
-      .join("");
-
-  const usedLetterIndices =
-    useMemo(
-      () =>
-        new Set(
-          slots.filter(
-            (
-              value,
-            ): value is number =>
-              value !== null,
-          ),
-        ),
-      [slots],
-    );
-
-  const progress =
-    data.letters.length > 0
-      ? Math.round(
-          (
-            selectedCount /
-            data.letters.length
-          ) * 100,
-        )
-      : 100;
 
   useEffect(() => {
     const animation =
@@ -546,8 +424,8 @@ export default function WordBuildActivity({
         entrance,
         {
           toValue: 1,
-          friction: 6,
-          tension: 55,
+          friction: 7,
+          tension: 58,
           useNativeDriver:
             true,
         },
@@ -559,13 +437,12 @@ export default function WordBuildActivity({
       setTimeout(() => {
         speakBangla(
           data.prompt ||
-            "অক্ষরগুলো সাজিয়ে শব্দ তৈরি করো।",
+            "শব্দগুলো সঠিক ক্রমে সাজিয়ে বাক্য তৈরি করো।",
         );
       }, 350);
 
     if (
-      data.letters.length ===
-        0 &&
+      slotCount === 0 &&
       !completedRef.current
     ) {
       completedRef.current =
@@ -580,9 +457,9 @@ export default function WordBuildActivity({
       void Speech.stop();
     };
   }, [
-    data.letters.length,
     data.prompt,
     entrance,
+    slotCount,
   ]);
 
   const opacity =
@@ -594,7 +471,7 @@ export default function WordBuildActivity({
   const translateY =
     entrance.interpolate({
       inputRange: [0, 1],
-      outputRange: [28, 0],
+      outputRange: [24, 0],
     });
 
   const shakeX =
@@ -605,18 +482,56 @@ export default function WordBuildActivity({
         1,
       ],
       outputRange: [
-        -9,
+        -8,
         0,
-        9,
+        8,
       ],
     });
 
+  const selectedCount =
+    slots.filter(
+      (value) =>
+        value !== null,
+    ).length;
+
+  const usedWordIndices =
+    useMemo(
+      () =>
+        new Set(
+          slots.filter(
+            (
+              value,
+            ): value is number =>
+              value !== null,
+          ),
+        ),
+      [slots],
+    );
+
+  const sentenceWords =
+    slots.map(
+      (value) =>
+        value === null
+          ? ""
+          : data.words[
+              value
+            ],
+    );
+
+  const currentSentence =
+    sentenceWords
+      .filter(Boolean)
+      .join(" ");
+
+  const targetSentence =
+    data.answer.join(" ");
+
   const characterSize =
     isTablet
-      ? 205
+      ? 190
       : isSmallPhone
-        ? 128
-        : 155;
+        ? 122
+        : 150;
 
   const pushHistory = (
     previous: SlotValue[],
@@ -635,6 +550,7 @@ export default function WordBuildActivity({
       setWrongSlots(
         new Set(),
       );
+      setShowHint(false);
     };
 
   const updateSlots = (
@@ -652,7 +568,7 @@ export default function WordBuildActivity({
           updater(current);
 
         if (
-          arraysEqual(
+          sameSlots(
             current,
             next,
           )
@@ -716,34 +632,56 @@ export default function WordBuildActivity({
 
   const runSuccessAnimation =
     () => {
-      Animated.sequence([
-        Animated.timing(
-          answerScale,
-          {
-            toValue: 1.12,
-            duration: 150,
-            useNativeDriver:
-              true,
-          },
-        ),
-        Animated.spring(
-          answerScale,
-          {
-            toValue: 1,
-            friction: 4,
-            useNativeDriver:
-              true,
-          },
-        ),
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(
+            successScale,
+            {
+              toValue: 1.07,
+              duration: 140,
+              useNativeDriver:
+                true,
+            },
+          ),
+          Animated.spring(
+            successScale,
+            {
+              toValue: 1,
+              friction: 5,
+              useNativeDriver:
+                true,
+            },
+          ),
+        ]),
+        Animated.sequence([
+          Animated.spring(
+            rewardY,
+            {
+              toValue: 14,
+              friction: 7,
+              tension: 55,
+              useNativeDriver:
+                true,
+            },
+          ),
+          Animated.delay(1100),
+          Animated.timing(
+            rewardY,
+            {
+              toValue: -90,
+              duration: 220,
+              useNativeDriver:
+                true,
+            },
+          ),
+        ]),
       ]).start();
     };
 
   const isSlotLocked = (
     slotIndex: number,
   ) => {
-    if (
-      completed
-    ) {
+    if (completed) {
       return true;
     }
 
@@ -851,6 +789,7 @@ export default function WordBuildActivity({
         const centerX =
           rect.x +
           rect.width / 2;
+
         const centerY =
           rect.y +
           rect.height / 2;
@@ -867,7 +806,7 @@ export default function WordBuildActivity({
           Math.max(
             rect.width,
             rect.height,
-          ) * 0.75;
+          ) * 0.7;
 
         if (
           distance <=
@@ -907,7 +846,7 @@ export default function WordBuildActivity({
       )
     ) {
       speakBangla(
-        "এই জায়গাটি ঠিক আছে। ভুল জায়গাটি ঠিক করো।",
+        "এই শব্দটি সঠিক জায়গায় আছে। ভুল জায়গাগুলো ঠিক করো।",
       );
       return;
     }
@@ -929,7 +868,7 @@ export default function WordBuildActivity({
           }
 
           next[targetSlot] =
-            source.letterIndex;
+            source.wordIndex;
 
           return next;
         }
@@ -965,7 +904,7 @@ export default function WordBuildActivity({
           next[targetSlot];
 
         next[targetSlot] =
-          source.letterIndex;
+          source.wordIndex;
 
         next[sourceSlot] =
           targetValue;
@@ -1011,19 +950,24 @@ export default function WordBuildActivity({
         );
       }
 
-      return slots.findIndex(
-        (value) =>
-          value === null,
-      );
+      const emptyIndex =
+        slots.findIndex(
+          (value) =>
+            value === null,
+        );
+
+      return emptyIndex >= 0
+        ? emptyIndex
+        : null;
     };
 
-  const tapBankLetter = (
-    letterIndex: number,
+  const tapBankWord = (
+    wordIndex: number,
   ) => {
     if (
       completed ||
-      usedLetterIndices.has(
-        letterIndex,
+      usedWordIndices.has(
+        wordIndex,
       )
     ) {
       return;
@@ -1032,29 +976,23 @@ export default function WordBuildActivity({
     const target =
       firstEditableSlot();
 
-    if (target < 0) {
+    if (target === null) {
       speakBangla(
-        "সব ঘর পূর্ণ হয়েছে। চাইলে একটি অক্ষর সরিয়ে আবার বসাও।",
+        "সব ঘর পূর্ণ হয়েছে। চাইলে কোনো শব্দ সরিয়ে আবার বসাও।",
       );
       return;
     }
 
-    if (
-      target === null
-    ) {
-      return;
-    }
-
     speakBangla(
-      data.letters[
-        letterIndex
+      data.words[
+        wordIndex
       ],
     );
 
     applyDrop(
       {
         kind: "bank",
-        letterIndex,
+        wordIndex,
       },
       target,
     );
@@ -1072,19 +1010,19 @@ export default function WordBuildActivity({
       return;
     }
 
-    const letterIndex =
+    const wordIndex =
       slots[slotIndex];
 
     if (
-      letterIndex ===
+      wordIndex ===
       null
     ) {
       return;
     }
 
     speakBangla(
-      data.letters[
-        letterIndex
+      data.words[
+        wordIndex
       ],
     );
 
@@ -1135,12 +1073,9 @@ export default function WordBuildActivity({
   };
 
   const reset = () => {
-    if (completed) {
-      return;
-    }
-
     if (
-      arraysEqual(
+      completed ||
+      sameSlots(
         slots,
         initialSlots,
       )
@@ -1159,14 +1094,24 @@ export default function WordBuildActivity({
     clearFeedback();
 
     speakBangla(
-      "আবার শুরু করি। অক্ষরগুলো ঠিকভাবে সাজাও।",
+      "আবার শুরু করি। শব্দগুলো সঠিক ক্রমে সাজাও।",
     );
   };
 
-  const listenWord =
+  const listenSentence =
     () => {
       speakBangla(
-        data.answer,
+        targetSentence,
+      );
+    };
+
+  const showHintAndSpeak =
+    () => {
+      setShowHint(true);
+
+      speakBangla(
+        data.hint ||
+          `সঠিক বাক্যটি হলো ${targetSentence}`,
       );
     };
 
@@ -1175,17 +1120,34 @@ export default function WordBuildActivity({
       if (
         completed ||
         selectedCount !==
-          data.letters.length
+          slotCount
       ) {
         speakBangla(
-          "সব ঘরে অক্ষর বসাও, তারপর যাচাই করো।",
+          "সব ঘরে শব্দ বসাও, তারপর যাচাই করো।",
         );
         return;
       }
 
-      if (
-        word === data.answer
-      ) {
+      const actualWords =
+        slots.map(
+          (value) =>
+            value === null
+              ? ""
+              : data.words[
+                  value
+                ],
+        );
+
+      const correct =
+        actualWords.length ===
+          data.answer.length &&
+        actualWords.every(
+          (word, index) =>
+            word ===
+            data.answer[index],
+        );
+
+      if (correct) {
         if (
           completedRef.current
         ) {
@@ -1205,9 +1167,9 @@ export default function WordBuildActivity({
 
         setTimeout(() => {
           speakBangla(
-            `দারুণ! তুমি ${data.answer} শব্দটি তৈরি করেছো।`,
+            `দারুণ! বাক্যটি সঠিক। ${targetSentence}`,
           );
-        }, 160);
+        }, 150);
 
         onCompleteRef.current();
         return;
@@ -1216,43 +1178,23 @@ export default function WordBuildActivity({
       const wrong =
         new Set<number>();
 
-      if (
-        expectedLetters
-      ) {
-        slots.forEach(
-          (
-            value,
-            index,
-          ) => {
-            const actual =
-              value === null
-                ? ""
-                : data.letters[
-                    value
-                  ];
-
-            if (
-              actual !==
-              expectedLetters[
-                index
-              ]
-            ) {
-              wrong.add(
-                index,
-              );
-            }
-          },
-        );
-      } else {
-        for (
-          let index = 0;
-          index <
-          slots.length;
-          index += 1
-        ) {
-          wrong.add(index);
-        }
-      }
+      actualWords.forEach(
+        (
+          word,
+          index,
+        ) => {
+          if (
+            word !==
+            data.answer[
+              index
+            ]
+          ) {
+            wrong.add(
+              index,
+            );
+          }
+        },
+      );
 
       setChecked(true);
       setWrongSlots(
@@ -1264,16 +1206,16 @@ export default function WordBuildActivity({
       setTimeout(() => {
         speakBangla(
           wrong.size === 1
-            ? "একটি জায়গা ঠিক হয়নি। শুধু ওই জায়গাটি ঠিক করো।"
-            : `${wrong.size}টি জায়গা ঠিক হয়নি। শুধু ভুল জায়গাগুলো ঠিক করো।`,
+            ? "একটি শব্দ ভুল জায়গায় আছে। শুধু ওই জায়গাটি ঠিক করো।"
+            : `${wrong.size}টি শব্দ ভুল জায়গায় আছে। শুধু ভুল জায়গাগুলো ঠিক করো।`,
         );
       }, 140);
     };
 
-  const correctSlotCount =
+  const correctLockedCount =
     checked &&
     wrongSlots.size > 0
-      ? slots.length -
+      ? slotCount -
         wrongSlots.size
       : 0;
 
@@ -1284,29 +1226,68 @@ export default function WordBuildActivity({
         {
           opacity,
           transform: [
-            {
-              translateY,
-            },
+            { translateY },
           ],
         },
       ]}
     >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.rewardToast,
+          {
+            transform: [
+              {
+                translateY:
+                  rewardY,
+              },
+            ],
+          },
+        ]}
+      >
+        <Text
+          style={
+            styles.rewardIcon
+          }
+        >
+          ⭐
+        </Text>
+
+        <View>
+          <Text
+            style={
+              styles.rewardTitle
+            }
+          >
+            দারুণ!
+          </Text>
+
+          <Text
+            style={
+              styles.rewardText
+            }
+          >
+            বাক্যটি সঠিক হয়েছে
+          </Text>
+        </View>
+      </Animated.View>
+
       <View
         style={
-          styles.missionHeader
+          styles.header
         }
       >
         <View
           style={
-            styles.missionIcon
+            styles.headerIcon
           }
         >
           <Text
             style={
-              styles.missionIconText
+              styles.headerIconText
             }
           >
-            🧩
+            🧠
           </Text>
         </View>
 
@@ -1317,56 +1298,38 @@ export default function WordBuildActivity({
         >
           <Text
             style={
-              styles.headerEyebrow
+              styles.eyebrow
             }
           >
-            WORD BUILDER
+            WORD ORDER
           </Text>
 
           <Text
             style={[
-              styles.headerTitle,
+              styles.title,
               isTablet &&
-                styles.headerTitleTablet,
+                styles.titleTablet,
             ]}
           >
             {activity.title ??
-              "শব্দ বানাই"}
+              "বাক্য সাজাই"}
           </Text>
         </View>
 
         <View
           style={
-            styles.xpBadge
+            styles.counterBadge
           }
         >
           <Text
             style={
-              styles.xpText
+              styles.counterText
             }
           >
-            +15 XP
+            {selectedCount}/
+            {slotCount}
           </Text>
         </View>
-      </View>
-
-      <View
-        style={
-          styles.progressTrack
-        }
-      >
-        <View
-          style={[
-            styles.progressFill,
-            {
-              width: `${
-                completed
-                  ? 100
-                  : progress
-              }%`,
-            },
-          ]}
-        />
       </View>
 
       <View
@@ -1376,100 +1339,47 @@ export default function WordBuildActivity({
       >
         <View
           style={
-            styles.guideOrbOne
-          }
-        />
-        <View
-          style={
-            styles.guideOrbTwo
+            styles.guideOrb
           }
         />
 
-        <View
-          style={
-            styles.mimiZone
+        <MimiCharacter
+          emotion={
+            completed
+              ? "celebrate"
+              : checked &&
+                  wrongSlots.size >
+                    0
+                ? "talking"
+                : "happy"
           }
-        >
-          <MimiCharacter
-            emotion={
-              completed
-                ? "celebrate"
-                : checked &&
-                    wrongSlots.size >
-                      0
-                  ? "talking"
-                  : "happy"
-            }
-            size={
-              characterSize
-            }
-          />
-
-          <View
-            style={
-              styles.guideBadge
-            }
-          >
-            <Text
-              style={
-                styles.guideDot
-              }
-            >
-              ●
-            </Text>
-
-            <Text
-              style={
-                styles.guideBadgeText
-              }
-            >
-              WORD COACH
-            </Text>
-          </View>
-        </View>
+          size={
+            characterSize
+          }
+        />
 
         <View
           style={
             styles.promptCard
           }
         >
-          <View
+          <Text
             style={
-              styles.promptIcon
+              styles.promptLabel
             }
           >
-            <Text
-              style={
-                styles.promptIconText
-              }
-            >
-              🎯
-            </Text>
-          </View>
+            তোমার puzzle
+          </Text>
 
-          <View
-            style={
-              styles.promptCopy
-            }
+          <Text
+            style={[
+              styles.prompt,
+              isTablet &&
+                styles.promptTablet,
+            ]}
           >
-            <Text
-              style={
-                styles.promptLabel
-              }
-            >
-              তোমার mission
-            </Text>
-
-            <Text
-              style={[
-                styles.promptText,
-                isTablet &&
-                  styles.promptTextTablet,
-              ]}
-            >
-              {data.prompt}
-            </Text>
-          </View>
+            {data.prompt}
+          </Text>
 
           <Pressable
             accessibilityRole="button"
@@ -1487,12 +1397,16 @@ export default function WordBuildActivity({
                 styles.pressed,
             ]}
           >
+            <Text>
+              🔊
+            </Text>
+
             <Text
               style={
-                styles.listenIcon
+                styles.listenButtonText
               }
             >
-              🔊
+              শুনি
             </Text>
           </Pressable>
         </View>
@@ -1500,52 +1414,37 @@ export default function WordBuildActivity({
 
       <View
         style={
-          styles.answerHeader
+          styles.sectionHeader
         }
       >
         <View>
           <Text
             style={
-              styles.answerEyebrow
+              styles.sectionEyebrow
             }
           >
-            DROP ZONE
+            SENTENCE SLOTS
           </Text>
 
           <Text
             style={
-              styles.answerTitle
+              styles.sectionTitle
             }
           >
-            অক্ষরগুলো ঘরে বসাও
-          </Text>
-        </View>
-
-        <View
-          style={
-            styles.counterBadge
-          }
-        >
-          <Text
-            style={
-              styles.counterText
-            }
-          >
-            {selectedCount}/
-            {data.letters.length}
+            শব্দগুলো সঠিক জায়গায় বসাও
           </Text>
         </View>
       </View>
 
       <Animated.View
         style={[
-          styles.answerCard,
+          styles.sentenceCard,
           checked &&
             wrongSlots.size >
               0 &&
-            styles.answerCardWrong,
+            styles.sentenceCardWrong,
           completed &&
-            styles.answerCardCompleted,
+            styles.sentenceCardCorrect,
           {
             transform: [
               {
@@ -1554,7 +1453,7 @@ export default function WordBuildActivity({
               },
               {
                 scale:
-                  answerScale,
+                  successScale,
               },
             ],
           },
@@ -1562,23 +1461,23 @@ export default function WordBuildActivity({
       >
         <View
           style={
-            styles.answerSlots
+            styles.slotsWrap
           }
         >
           {slots.map(
             (
-              letterIndex,
+              wordIndex,
               slotIndex,
             ) => {
-              const filledLetterIndex =
-                letterIndex;
+              const filledWordIndex =
+                wordIndex;
 
-              const letter =
-                filledLetterIndex ===
+              const word =
+                filledWordIndex ===
                 null
                   ? null
-                  : data.letters[
-                      filledLetterIndex
+                  : data.words[
+                      filledWordIndex
                     ];
 
               const slotWrong =
@@ -1593,34 +1492,32 @@ export default function WordBuildActivity({
                   wrongSlots.size >
                     0 &&
                   !slotWrong &&
-                  letter !==
+                  word !==
                     null);
 
               return (
                 <View
-                  key={`answer-slot-${slotIndex}`}
+                  key={`sentence-slot-${slotIndex}`}
                   ref={(view) => {
                     slotRefs.current[
                       slotIndex
                     ] = view;
                   }}
                   style={[
-                    styles.answerSlot,
-                    letter &&
-                      styles.answerSlotFilled,
+                    styles.slot,
+                    word !== null &&
+                      styles.slotFilled,
                     slotWrong &&
-                      styles.answerSlotWrong,
+                      styles.slotWrong,
                     slotCorrect &&
-                      styles.answerSlotCorrect,
+                      styles.slotCorrect,
                   ]}
                 >
-                  {filledLetterIndex !==
+                  {filledWordIndex !==
                     null &&
-                  letter !== null ? (
-                    <DraggableLetter
-                      letter={
-                        letter
-                      }
+                  word !== null ? (
+                    <DraggableWord
+                      word={word}
                       compact
                       wrong={
                         slotWrong
@@ -1635,7 +1532,7 @@ export default function WordBuildActivity({
                       }
                       onSpeak={() =>
                         speakBangla(
-                          letter,
+                          word,
                         )
                       }
                       onTap={() =>
@@ -1650,8 +1547,8 @@ export default function WordBuildActivity({
                         void handleDrop(
                           {
                             kind: "slot",
-                            letterIndex:
-                              filledLetterIndex,
+                            wordIndex:
+                              filledWordIndex,
                             slotIndex,
                           },
                           pageX,
@@ -1662,24 +1559,24 @@ export default function WordBuildActivity({
                   ) : (
                     <View
                       style={
-                        styles.emptySlotContent
+                        styles.emptySlot
                       }
                     >
                       <Text
                         style={
-                          styles.emptySlotPlus
-                        }
-                      >
-                        +
-                      </Text>
-
-                      <Text
-                        style={
-                          styles.emptySlotLabel
+                          styles.emptySlotNumber
                         }
                       >
                         {slotIndex +
                           1}
+                      </Text>
+
+                      <Text
+                        style={
+                          styles.emptySlotText
+                        }
+                      >
+                        শব্দ
                       </Text>
                     </View>
                   )}
@@ -1691,17 +1588,17 @@ export default function WordBuildActivity({
 
         <Text
           style={[
-            styles.wordPreview,
+            styles.sentencePreview,
             checked &&
               wrongSlots.size >
                 0 &&
-              styles.wordPreviewWrong,
+              styles.sentencePreviewWrong,
             completed &&
-              styles.wordPreviewCompleted,
+              styles.sentencePreviewCorrect,
           ]}
         >
-          {word ||
-            "টেনে বা চাপ দিয়ে অক্ষর বসাও"}
+          {currentSentence ||
+            "এখানে তোমার বাক্য তৈরি হবে"}
         </Text>
 
         {completed ? (
@@ -1712,10 +1609,10 @@ export default function WordBuildActivity({
           >
             <Text
               style={
-                styles.feedbackSuccessIcon
+                styles.feedbackIcon
               }
             >
-              🏆
+              ✓
             </Text>
 
             <Text
@@ -1723,7 +1620,7 @@ export default function WordBuildActivity({
                 styles.feedbackSuccessText
               }
             >
-              অসাধারণ! শব্দটি সঠিক হয়েছে
+              একদম সঠিক বাক্য!
             </Text>
           </View>
         ) : checked &&
@@ -1736,7 +1633,7 @@ export default function WordBuildActivity({
           >
             <Text
               style={
-                styles.feedbackWrongIcon
+                styles.feedbackIcon
               }
             >
               🔧
@@ -1760,38 +1657,24 @@ export default function WordBuildActivity({
                   styles.feedbackWrongSubtext
                 }
               >
-                {correctSlotCount}টি সঠিক জায়গা lock করা আছে
+                {correctLockedCount}টি সঠিক জায়গা lock আছে
               </Text>
             </View>
           </View>
         ) : (
-          <View
+          <Text
             style={
-              styles.feedbackHint
+              styles.helperText
             }
           >
-            <Text
-              style={
-                styles.feedbackHintIcon
-              }
-            >
-              💡
-            </Text>
-
-            <Text
-              style={
-                styles.feedbackHintText
-              }
-            >
-              অক্ষর টেনে ঘরে ফেলো। চাইলে অক্ষরে চাপও দিতে পারো।
-            </Text>
-          </View>
+            word tile টেনে slot-এ ফেলো, অথবা tile-এ চাপ দাও
+          </Text>
         )}
       </Animated.View>
 
       <View
         style={
-          styles.utilityBar
+          styles.toolsRow
         }
       >
         <Pressable
@@ -1805,21 +1688,21 @@ export default function WordBuildActivity({
           style={({
             pressed,
           }) => [
-            styles.utilityButton,
+            styles.toolButton,
             (history.length ===
               0 ||
               completed) &&
-              styles.utilityButtonDisabled,
+              styles.toolButtonDisabled,
             pressed &&
               history.length >
                 0 &&
               !completed &&
-              styles.utilityButtonPressed,
+              styles.pressed,
           ]}
         >
           <Text
             style={
-              styles.utilityIcon
+              styles.toolIcon
             }
           >
             ↶
@@ -1828,7 +1711,7 @@ export default function WordBuildActivity({
           {!isSmallPhone ? (
             <Text
               style={
-                styles.utilityText
+                styles.toolText
               }
             >
               Undo
@@ -1847,21 +1730,21 @@ export default function WordBuildActivity({
           style={({
             pressed,
           }) => [
-            styles.utilityButton,
+            styles.toolButton,
             (selectedCount ===
               0 ||
               completed) &&
-              styles.utilityButtonDisabled,
+              styles.toolButtonDisabled,
             pressed &&
               selectedCount >
                 0 &&
               !completed &&
-              styles.utilityButtonPressed,
+              styles.pressed,
           ]}
         >
           <Text
             style={
-              styles.utilityIcon
+              styles.toolIcon
             }
           >
             ↻
@@ -1870,7 +1753,7 @@ export default function WordBuildActivity({
           {!isSmallPhone ? (
             <Text
               style={
-                styles.utilityText
+                styles.toolText
               }
             >
               Reset
@@ -1881,20 +1764,20 @@ export default function WordBuildActivity({
         <Pressable
           accessibilityRole="button"
           onPress={
-            listenWord
+            listenSentence
           }
           style={({
             pressed,
           }) => [
-            styles.utilityButton,
-            styles.utilityButtonListen,
+            styles.toolButton,
+            styles.toolButtonListen,
             pressed &&
-              styles.utilityButtonPressed,
+              styles.pressed,
           ]}
         >
           <Text
             style={
-              styles.utilityIcon
+              styles.toolIcon
             }
           >
             🔊
@@ -1903,41 +1786,105 @@ export default function WordBuildActivity({
           {!isSmallPhone ? (
             <Text
               style={
-                styles.utilityText
+                styles.toolText
               }
             >
-              শুনি
+              বাক্য শুনি
+            </Text>
+          ) : null}
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          disabled={
+            completed
+          }
+          onPress={
+            showHintAndSpeak
+          }
+          style={({
+            pressed,
+          }) => [
+            styles.toolButton,
+            completed &&
+              styles.toolButtonDisabled,
+            pressed &&
+              !completed &&
+              styles.pressed,
+          ]}
+        >
+          <Text
+            style={
+              styles.toolIcon
+            }
+          >
+            💡
+          </Text>
+
+          {!isSmallPhone ? (
+            <Text
+              style={
+                styles.toolText
+              }
+            >
+              Hint
             </Text>
           ) : null}
         </Pressable>
       </View>
 
+      {showHint &&
+      !completed ? (
+        <View
+          style={
+            styles.hintCard
+          }
+        >
+          <Text
+            style={
+              styles.hintIcon
+            }
+          >
+            💡
+          </Text>
+
+          <Text
+            style={
+              styles.hintText
+            }
+          >
+            {data.hint ||
+              `সঠিক বাক্যটি শুনে শব্দগুলোর ক্রম মনে করো।`}
+          </Text>
+        </View>
+      ) : null}
+
       <View
         style={
-          styles.letterHeader
+          styles.wordBankHeader
         }
       >
         <View>
           <Text
             style={
-              styles.letterHeaderEyebrow
+              styles.sectionEyebrow
             }
           >
-            LETTER TILES
+            WORD BANK
           </Text>
 
           <Text
             style={
-              styles.letterHeaderText
+              styles.wordBankTitle
             }
           >
-            টেনে নাও বা চাপ দাও
+            শব্দগুলো
           </Text>
         </View>
 
         <Text
           style={
-            styles.letterHelp
+            styles.dragLabel
           }
         >
           Drag & Drop
@@ -1946,23 +1893,23 @@ export default function WordBuildActivity({
 
       <View
         style={
-          styles.lettersGrid
+          styles.wordBank
         }
       >
-        {data.letters.map(
+        {data.words.map(
           (
-            letter,
+            word,
             index,
           ) => {
             const selected =
-              usedLetterIndices.has(
+              usedWordIndices.has(
                 index,
               );
 
             return (
-              <DraggableLetter
-                key={`${letter}-${index}`}
-                letter={letter}
+              <DraggableWord
+                key={`${word}-${index}`}
+                word={word}
                 selected={
                   selected
                 }
@@ -1972,11 +1919,11 @@ export default function WordBuildActivity({
                 }
                 onSpeak={() =>
                   speakBangla(
-                    letter,
+                    word,
                   )
                 }
                 onTap={() =>
-                  tapBankLetter(
+                  tapBankWord(
                     index,
                   )
                 }
@@ -1987,7 +1934,7 @@ export default function WordBuildActivity({
                   void handleDrop(
                     {
                       kind: "bank",
-                      letterIndex:
+                      wordIndex:
                         index,
                     },
                     pageX,
@@ -2005,12 +1952,12 @@ export default function WordBuildActivity({
         accessibilityState={{
           disabled:
             selectedCount !==
-              data.letters.length ||
+              slotCount ||
             completed,
         }}
         disabled={
           selectedCount !==
-            data.letters.length ||
+            slotCount ||
           completed
         }
         onPress={
@@ -2021,20 +1968,20 @@ export default function WordBuildActivity({
         }) => [
           styles.checkButton,
           selectedCount !==
-              data.letters.length &&
+              slotCount &&
             styles.checkButtonDisabled,
           completed &&
-            styles.checkButtonCompleted,
+            styles.checkButtonCorrect,
           pressed &&
             selectedCount ===
-              data.letters.length &&
+              slotCount &&
             !completed &&
             styles.checkButtonPressed,
         ]}
       >
         <Text
           style={
-            styles.checkButtonIcon
+            styles.checkIcon
           }
         >
           {completed
@@ -2044,12 +1991,12 @@ export default function WordBuildActivity({
 
         <Text
           style={
-            styles.checkButtonText
+            styles.checkText
           }
         >
           {completed
-            ? "সঠিক হয়েছে"
-            : "শব্দটি যাচাই করি"}
+            ? "বাক্যটি সঠিক"
+            : "বাক্য যাচাই করি"}
         </Text>
       </Pressable>
 
@@ -2059,7 +2006,7 @@ export default function WordBuildActivity({
             styles.footerHint
           }
         >
-          একটি অক্ষর সরাতে slot-এর অক্ষরে চাপ দাও। এক slot থেকে আরেক slot-এ টানলে swap হবে।
+          slot-এর শব্দে চাপ দিলে সেটি আবার word bank-এ ফিরে যাবে। এক slot থেকে অন্য slot-এ টানলে swap হবে।
         </Text>
       ) : null}
     </Animated.View>
@@ -2070,28 +2017,78 @@ const styles =
   StyleSheet.create({
     container: {
       width: "100%",
+      position:
+        "relative",
     },
 
-    missionHeader: {
+    rewardToast: {
+      position:
+        "absolute",
+      top: 0,
+      left: 14,
+      right: 14,
+      zIndex: 50,
+      elevation: 12,
+      minHeight: 64,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      gap: 10,
+      paddingHorizontal: 14,
+      borderWidth: 1,
+      borderColor:
+        "#D8EACF",
+      borderRadius: 20,
+      backgroundColor:
+        "#F0FAEC",
+      shadowColor:
+        "#274B22",
+      shadowOffset: {
+        width: 0,
+        height: 5,
+      },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+    },
+
+    rewardIcon: {
+      fontSize: 27,
+    },
+
+    rewardTitle: {
+      fontSize: 13,
+      fontWeight: "900",
+      color: "#3F7C39",
+    },
+
+    rewardText: {
+      marginTop: 2,
+      fontSize: 10,
+      fontWeight: "800",
+      color: "#678161",
+    },
+
+    header: {
       flexDirection:
         "row",
       alignItems:
         "center",
     },
 
-    missionIcon: {
-      width: 47,
-      height: 47,
+    headerIcon: {
+      width: 48,
+      height: 48,
       alignItems:
         "center",
       justifyContent:
         "center",
       borderRadius: 16,
       backgroundColor:
-        "#EEE6FF",
+        "#EEE8FF",
     },
 
-    missionIconText: {
+    headerIconText: {
       fontSize: 23,
     },
 
@@ -2100,236 +2097,28 @@ const styles =
       marginLeft: 11,
     },
 
-    headerEyebrow: {
+    eyebrow: {
       fontSize: 8,
       letterSpacing: 1.4,
       fontWeight: "900",
-      color: "#9B919F",
+      color: "#9A909E",
     },
 
-    headerTitle: {
+    title: {
       marginTop: 2,
-      fontSize: 18,
+      fontSize: 19,
       fontWeight: "900",
-      color: "#28232B",
+      color: "#29242B",
     },
 
-    headerTitleTablet: {
-      fontSize: 23,
-    },
-
-    xpBadge: {
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-      borderRadius: 15,
-      backgroundColor:
-        "#FFF1C8",
-    },
-
-    xpText: {
-      fontSize: 9,
-      fontWeight: "900",
-      color: "#9B6A00",
-    },
-
-    progressTrack: {
-      height: 8,
-      overflow:
-        "hidden",
-      marginTop: 12,
-      borderRadius: 4,
-      backgroundColor:
-        "#ECE8EF",
-    },
-
-    progressFill: {
-      height: "100%",
-      borderRadius: 4,
-      backgroundColor:
-        "#7653BD",
-    },
-
-    guideCard: {
-      position:
-        "relative",
-      overflow:
-        "hidden",
-      minHeight: 185,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      marginTop: 14,
-      padding: 12,
-      borderRadius: 25,
-      backgroundColor:
-        "#D9CDF8",
-    },
-
-    guideOrbOne: {
-      position:
-        "absolute",
-      top: -55,
-      right: -45,
-      width: 150,
-      height: 150,
-      borderRadius: 75,
-      backgroundColor:
-        "rgba(255,255,255,0.25)",
-    },
-
-    guideOrbTwo: {
-      position:
-        "absolute",
-      left: -55,
-      bottom: -70,
-      width: 160,
-      height: 160,
-      borderRadius: 80,
-      backgroundColor:
-        "rgba(255,255,255,0.20)",
-    },
-
-    mimiZone: {
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    guideBadge: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      gap: 4,
-      marginTop: -10,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 10,
-      backgroundColor:
-        "rgba(255,255,255,0.78)",
-    },
-
-    guideDot: {
-      fontSize: 7,
-      color: "#58A951",
-    },
-
-    guideBadgeText: {
-      fontSize: 7,
-      letterSpacing: 0.8,
-      fontWeight: "900",
-      color: "#6B5A79",
-    },
-
-    promptCard: {
-      flex: 1,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      marginLeft: 8,
-      padding: 12,
-      borderRadius: 20,
-      backgroundColor:
-        "rgba(255,255,255,0.82)",
-    },
-
-    promptIcon: {
-      width: 37,
-      height: 37,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      borderRadius: 13,
-      backgroundColor:
-        "#FFF1C8",
-    },
-
-    promptIconText: {
-      fontSize: 18,
-    },
-
-    promptCopy: {
-      flex: 1,
-      marginHorizontal: 9,
-    },
-
-    promptLabel: {
-      fontSize: 8,
-      fontWeight: "900",
-      color: "#9A7B2E",
-    },
-
-    promptText: {
-      marginTop: 3,
-      fontSize: 13,
-      lineHeight: 19,
-      fontWeight: "900",
-      color: "#332D37",
-    },
-
-    promptTextTablet: {
-      fontSize: 16,
-      lineHeight: 23,
-    },
-
-    listenButton: {
-      width: 38,
-      height: 38,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      borderRadius: 19,
-      backgroundColor:
-        "#E8F4FF",
-    },
-
-    listenIcon: {
-      fontSize: 16,
-    },
-
-    pressed: {
-      transform: [
-        {
-          scale: 0.96,
-        },
-      ],
-      opacity: 0.88,
-    },
-
-    answerHeader: {
-      flexDirection:
-        "row",
-      alignItems:
-        "flex-end",
-      justifyContent:
-        "space-between",
-      marginTop: 18,
-      marginBottom: 9,
-    },
-
-    answerEyebrow: {
-      fontSize: 8,
-      letterSpacing: 1.2,
-      fontWeight: "900",
-      color: "#9B919F",
-    },
-
-    answerTitle: {
-      marginTop: 2,
-      fontSize: 16,
-      fontWeight: "900",
-      color: "#302A33",
+    titleTablet: {
+      fontSize: 24,
     },
 
     counterBadge: {
       paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 13,
+      paddingVertical: 7,
+      borderRadius: 15,
       backgroundColor:
         "#EEE8F8",
     },
@@ -2340,45 +2129,152 @@ const styles =
       color: "#7653BD",
     },
 
-    answerCard: {
+    guideCard: {
+      position:
+        "relative",
+      overflow:
+        "hidden",
+      minHeight: 180,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      marginTop: 14,
+      padding: 12,
+      borderRadius: 25,
+      backgroundColor:
+        "#D8CDF7",
+    },
+
+    guideOrb: {
+      position:
+        "absolute",
+      right: -45,
+      top: -55,
+      width: 150,
+      height: 150,
+      borderRadius: 75,
+      backgroundColor:
+        "rgba(255,255,255,0.24)",
+    },
+
+    promptCard: {
+      flex: 1,
+      marginLeft: 8,
+      padding: 13,
+      borderRadius: 20,
+      backgroundColor:
+        "rgba(255,255,255,0.82)",
+    },
+
+    promptLabel: {
+      fontSize: 8,
+      fontWeight: "900",
+      color: "#8D7A98",
+    },
+
+    prompt: {
+      marginTop: 4,
+      fontSize: 14,
+      lineHeight: 20,
+      fontWeight: "900",
+      color: "#352F39",
+    },
+
+    promptTablet: {
+      fontSize: 17,
+      lineHeight: 24,
+    },
+
+    listenButton: {
+      alignSelf:
+        "flex-start",
+      minHeight: 35,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      gap: 5,
+      marginTop: 10,
+      paddingHorizontal: 10,
+      borderRadius: 18,
+      backgroundColor:
+        "#EAF4FF",
+    },
+
+    listenButtonText: {
+      fontSize: 9,
+      fontWeight: "900",
+      color: "#4F7088",
+    },
+
+    pressed: {
+      transform: [
+        {
+          scale: 0.97,
+        },
+      ],
+      opacity: 0.88,
+    },
+
+    sectionHeader: {
+      marginTop: 18,
+      marginBottom: 9,
+    },
+
+    sectionEyebrow: {
+      fontSize: 8,
+      letterSpacing: 1.2,
+      fontWeight: "900",
+      color: "#9A909E",
+    },
+
+    sectionTitle: {
+      marginTop: 2,
+      fontSize: 15,
+      fontWeight: "900",
+      color: "#302B33",
+    },
+
+    sentenceCard: {
       alignItems:
         "center",
       padding: 14,
       borderWidth: 2,
       borderColor:
-        "#E2DDE6",
+        "#E1DCE5",
       borderRadius: 24,
       backgroundColor:
-        "#FAF9FB",
+        "#FFFFFF",
     },
 
-    answerCardWrong: {
+    sentenceCardWrong: {
       borderColor:
-        "#E6A15B",
+        "#E6A365",
       backgroundColor:
-        "#FFF8ED",
+        "#FFF8EF",
     },
 
-    answerCardCompleted: {
+    sentenceCardCorrect: {
       borderColor:
-        "#6BC161",
+        "#6DBB63",
       backgroundColor:
-        "#F0FBEF",
+        "#F0FAEE",
     },
 
-    answerSlots: {
+    slotsWrap: {
       width: "100%",
       flexDirection:
         "row",
       flexWrap: "wrap",
       justifyContent:
         "center",
-      gap: 9,
+      gap: 8,
     },
 
-    answerSlot: {
-      width: 66,
-      height: 70,
+    slot: {
+      minWidth: 82,
+      minHeight: 62,
       alignItems:
         "center",
       justifyContent:
@@ -2388,31 +2284,31 @@ const styles =
       borderStyle:
         "dashed",
       borderColor:
-        "#CFC7D5",
-      borderRadius: 18,
+        "#CBC3D0",
+      borderRadius: 17,
       backgroundColor:
-        "#FFFFFF",
+        "#FAF9FB",
     },
 
-    answerSlotFilled: {
+    slotFilled: {
       borderStyle:
         "solid",
       borderColor:
-        "#A995C7",
+        "#AA98C7",
       backgroundColor:
         "#F7F2FF",
     },
 
-    answerSlotWrong: {
+    slotWrong: {
       borderStyle:
         "solid",
       borderColor:
-        "#E18259",
+        "#DE8059",
       backgroundColor:
         "#FFF0E8",
     },
 
-    answerSlotCorrect: {
+    slotCorrect: {
       borderStyle:
         "solid",
       borderColor:
@@ -2421,67 +2317,48 @@ const styles =
         "#EAF8E7",
     },
 
-    emptySlotContent: {
+    emptySlot: {
       alignItems:
         "center",
-      justifyContent:
-        "center",
     },
 
-    emptySlotPlus: {
-      fontSize: 20,
-      fontWeight: "700",
-      color: "#B4AABA",
-    },
-
-    emptySlotLabel: {
-      marginTop: -2,
-      fontSize: 8,
+    emptySlotNumber: {
+      fontSize: 14,
       fontWeight: "900",
-      color: "#B4AABA",
+      color: "#A79EAC",
     },
 
-    wordPreview: {
+    emptySlotText: {
+      marginTop: 2,
+      fontSize: 7,
+      fontWeight: "800",
+      color: "#B0A8B4",
+    },
+
+    sentencePreview: {
       marginTop: 13,
-      fontSize: 18,
+      fontSize: 16,
+      lineHeight: 23,
       fontWeight: "900",
-      color: "#645A69",
+      color: "#645B69",
       textAlign:
         "center",
     },
 
-    wordPreviewWrong: {
-      color: "#B36D3D",
+    sentencePreviewWrong: {
+      color: "#A76734",
     },
 
-    wordPreviewCompleted: {
+    sentencePreviewCorrect: {
       color: "#438E3E",
     },
 
-    feedbackHint: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      marginTop: 11,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-      borderRadius: 14,
-      backgroundColor:
-        "#EEE8F8",
-    },
-
-    feedbackHintIcon: {
-      marginRight: 6,
-      fontSize: 15,
-    },
-
-    feedbackHintText: {
-      flexShrink: 1,
+    helperText: {
+      marginTop: 10,
       fontSize: 9,
       lineHeight: 13,
       fontWeight: "800",
-      color: "#6D6174",
+      color: "#8B818E",
       textAlign:
         "center",
     },
@@ -2499,9 +2376,22 @@ const styles =
         "#FFE8D6",
     },
 
-    feedbackWrongIcon: {
+    feedbackSuccess: {
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      marginTop: 11,
+      paddingHorizontal: 11,
+      paddingVertical: 8,
+      borderRadius: 15,
+      backgroundColor:
+        "#DDF4D9",
+    },
+
+    feedbackIcon: {
       marginRight: 7,
-      fontSize: 18,
+      fontSize: 17,
     },
 
     feedbackCopy: {
@@ -2521,38 +2411,20 @@ const styles =
       color: "#A77758",
     },
 
-    feedbackSuccess: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      marginTop: 11,
-      paddingHorizontal: 11,
-      paddingVertical: 8,
-      borderRadius: 15,
-      backgroundColor:
-        "#DDF4D9",
-    },
-
-    feedbackSuccessIcon: {
-      marginRight: 7,
-      fontSize: 19,
-    },
-
     feedbackSuccessText: {
       fontSize: 10,
       fontWeight: "900",
       color: "#438E3E",
     },
 
-    utilityBar: {
+    toolsRow: {
       flexDirection:
         "row",
-      gap: 8,
-      marginTop: 12,
+      gap: 7,
+      marginTop: 11,
     },
 
-    utilityButton: {
+    toolButton: {
       flex: 1,
       minHeight: 42,
       flexDirection:
@@ -2561,8 +2433,8 @@ const styles =
         "center",
       justifyContent:
         "center",
-      gap: 5,
-      paddingHorizontal: 8,
+      gap: 4,
+      paddingHorizontal: 6,
       borderWidth: 1,
       borderColor:
         "#DDD6E2",
@@ -2571,92 +2443,103 @@ const styles =
         "#FFFFFF",
     },
 
-    utilityButtonListen: {
+    toolButtonListen: {
       backgroundColor:
         "#EAF5FF",
       borderColor:
         "#CFE7F7",
     },
 
-    utilityButtonDisabled: {
+    toolButtonDisabled: {
       opacity: 0.42,
     },
 
-    utilityButtonPressed: {
-      transform: [
-        {
-          translateY: 1,
-        },
-      ],
-      opacity: 0.88,
-    },
-
-    utilityIcon: {
+    toolIcon: {
       fontSize: 15,
     },
 
-    utilityText: {
-      fontSize: 9,
+    toolText: {
+      fontSize: 8,
       fontWeight: "900",
       color: "#5F5664",
     },
 
-    letterHeader: {
+    hintCard: {
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      marginTop: 9,
+      padding: 11,
+      borderRadius: 18,
+      backgroundColor:
+        "#FFF3CE",
+    },
+
+    hintIcon: {
+      marginRight: 8,
+      fontSize: 18,
+    },
+
+    hintText: {
+      flex: 1,
+      fontSize: 9,
+      lineHeight: 14,
+      fontWeight: "800",
+      color: "#806A32",
+    },
+
+    wordBankHeader: {
       flexDirection:
         "row",
       alignItems:
         "flex-end",
       justifyContent:
         "space-between",
-      marginTop: 17,
+      marginTop: 18,
       marginBottom: 9,
     },
 
-    letterHeaderEyebrow: {
-      fontSize: 8,
-      letterSpacing: 1.2,
-      fontWeight: "900",
-      color: "#9B919F",
-    },
-
-    letterHeaderText: {
+    wordBankTitle: {
       marginTop: 2,
-      fontSize: 14,
+      fontSize: 15,
       fontWeight: "900",
-      color: "#302A33",
+      color: "#302B33",
     },
 
-    letterHelp: {
+    dragLabel: {
       fontSize: 8,
       fontWeight: "900",
-      color: "#8B7E92",
+      color: "#8D8192",
     },
 
-    lettersGrid: {
+    wordBank: {
       flexDirection:
         "row",
       flexWrap: "wrap",
       justifyContent:
         "center",
-      gap: 10,
-      minHeight: 82,
+      gap: 9,
+      minHeight: 70,
     },
 
-    draggableTile: {
+    wordTile: {
       position:
         "relative",
       zIndex: 2,
-      width: 70,
-      height: 70,
+      minWidth: 86,
+      minHeight: 58,
       alignItems:
         "center",
       justifyContent:
         "center",
+      paddingHorizontal: 14,
+      paddingVertical: 9,
       borderWidth: 2,
       borderColor:
         "#A995C7",
       borderBottomWidth: 5,
-      borderRadius: 20,
+      borderRadius: 18,
       backgroundColor:
         "#F4EEFF",
       shadowColor:
@@ -2670,19 +2553,20 @@ const styles =
       elevation: 3,
     },
 
-    draggableTileCompact: {
+    wordTileCompact: {
       width: "100%",
-      height: "100%",
+      minWidth: 0,
+      minHeight: 52,
       borderWidth: 0,
       borderBottomWidth: 0,
-      borderRadius: 14,
+      borderRadius: 13,
       backgroundColor:
         "transparent",
       shadowOpacity: 0,
       elevation: 0,
     },
 
-    draggableTileSelected: {
+    wordTileSelected: {
       opacity: 0.28,
       borderColor:
         "#D8D0DE",
@@ -2690,55 +2574,57 @@ const styles =
         "#F0EDF2",
     },
 
-    draggableTileWrong: {
+    wordTileWrong: {
       borderColor:
         "#DE8059",
       backgroundColor:
         "#FFE8DA",
     },
 
-    draggableTileCorrect: {
+    wordTileCorrect: {
       borderColor:
         "#65B85C",
       backgroundColor:
         "#E6F7E3",
     },
 
-    draggableTileDisabled: {
+    wordTileDisabled: {
       shadowOpacity: 0,
       elevation: 0,
     },
 
-    draggableTileDragging: {
+    wordTileDragging: {
       zIndex: 100,
       elevation: 12,
       shadowOpacity: 0.22,
     },
 
-    draggableLetter: {
-      fontSize: 30,
+    wordTileText: {
+      fontSize: 18,
       fontWeight: "900",
-      color: "#4F3A68",
+      color: "#503A69",
+      textAlign:
+        "center",
     },
 
-    draggableLetterCompact: {
-      fontSize: 28,
+    wordTileTextCompact: {
+      fontSize: 16,
     },
 
-    draggableLetterSelected: {
+    wordTileTextSelected: {
       color: "#A69EAA",
     },
 
-    draggableLetterCorrect: {
-      color: "#438E3E",
+    wordTileTextCorrect: {
+      color: "#438D3D",
     },
 
-    dragHint: {
+    dragDots: {
       position:
         "absolute",
       right: 6,
       bottom: 3,
-      fontSize: 11,
+      fontSize: 10,
       letterSpacing: -2,
       fontWeight: "900",
       color: "#A998B8",
@@ -2775,7 +2661,7 @@ const styles =
       elevation: 0,
     },
 
-    checkButtonCompleted: {
+    checkButtonCorrect: {
       backgroundColor:
         "#4F9E48",
       shadowOpacity: 0,
@@ -2790,11 +2676,11 @@ const styles =
       ],
     },
 
-    checkButtonIcon: {
+    checkIcon: {
       fontSize: 18,
     },
 
-    checkButtonText: {
+    checkText: {
       fontSize: 13,
       fontWeight: "900",
       color: "#FFFFFF",
