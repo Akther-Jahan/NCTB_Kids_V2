@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Speech from 'expo-speech';
 
 import type { ScreenProps } from '../../../navigation/routes';
 import { getChapterById } from '../data/lessonData';
@@ -7,6 +8,16 @@ import { useQuizSessionStore } from '../store/quizSessionStore';
 import { useGamificationStore } from '../../gamification/store/gamificationStore';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
+const BENGALI_LANGUAGE = 'bn-BD';
+
+const speakBangla = (text: string) => {
+  Speech.stop();
+  Speech.speak(text, {
+    language: BENGALI_LANGUAGE,
+    rate: 0.85,
+    pitch: 1.05,
+  });
+};
 
 export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
   const { chapterId, nextChapterId } = route.params;
@@ -30,6 +41,10 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
 
   useEffect(() => {
     void loadQuizSessions();
+
+    return () => {
+      Speech.stop();
+    };
   }, [loadQuizSessions]);
 
   useEffect(() => {
@@ -87,6 +102,8 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
   const isLockedForNext = currentResult?.status === 'incorrect' && attemptsUsed >= maxAttempts;
 
   const finishOrNext = () => {
+    Speech.stop();
+
     if (questionIndex < quiz.length - 1) {
       setQuestionIndex((value) => value + 1);
       return;
@@ -106,9 +123,19 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
     }
   };
 
+  const handleOptionPress = (index: number) => {
+    if (isCorrect || isLockedForNext) {
+      return;
+    }
+
+    setSelectedIndex(index);
+    speakBangla(currentQuestion.options[index]);
+  };
+
   const handleSubmit = () => {
     if (selectedIndex === undefined) {
       Alert.alert('Choose one answer', 'Please select an answer first.');
+      speakBangla('একটি উত্তর বেছে নাও।');
       return;
     }
 
@@ -128,13 +155,16 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
     );
 
     if (correct) {
+      speakBangla('সঠিক উত্তর! দারুণ করেছো।');
       return;
     }
 
     if (nextAttempts >= maxAttempts) {
+      speakBangla('চলো পরের প্রশ্নে যাই। এই প্রশ্নটি পরে আবার অনুশীলন করতে পারো।');
       return;
     }
 
+    speakBangla('আবার চেষ্টা করো।');
     setSelectedIndex(undefined);
   };
 
@@ -215,7 +245,7 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
             selectedIndex === index && styles.selectedOption,
             isCorrect && index === currentQuestion.correctAnswerIndex && styles.correctOption,
           ]}
-          onPress={() => setSelectedIndex(index)}
+          onPress={() => handleOptionPress(index)}
         >
           <Text
             style={[
