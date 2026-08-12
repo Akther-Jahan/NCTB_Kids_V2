@@ -14,6 +14,7 @@ export type LessonChapter = {
   videoUrl: string;
   starsReward: number;
   passingScore: number;
+  maxAttempts?: number;
   nextChapterId?: string;
   quiz: QuizQuestion[];
 };
