@@ -1,9 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ScreenProps } from '../../../navigation/routes';
 import { getChapterById } from '../data/lessonData';
+import { useQuizSessionStore } from '../store/quizSessionStore';
 import { useGamificationStore } from '../../gamification/store/gamificationStore';
+
+const DEFAULT_MAX_ATTEMPTS = 3;
 
 export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
   const { chapterId, nextChapterId } = route.params;
@@ -11,21 +14,64 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
   const result = getChapterById(chapterId);
   const completeChapter = useGamificationStore((state) => state.completeChapter);
   const completedChapters = useGamificationStore((state) => state.completedChapters);
+  const loadQuizSessions = useQuizSessionStore((state) => state.load);
+  const ensureSession = useQuizSessionStore((state) => state.ensureSession);
+  const recordAttempt = useQuizSessionStore((state) => state.recordAttempt);
+  const session = useQuizSessionStore((state) => state.sessions[chapterId]);
 
   const [questionIndex, setQuestionIndex] = useState(0);
-  const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState<number | undefined>();
   const [finished, setFinished] = useState(false);
 
   const chapter = result?.chapter;
   const quiz = chapter?.quiz ?? [];
-
+  const maxAttempts = chapter?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const currentQuestion = quiz[questionIndex];
 
+  useEffect(() => {
+    void loadQuizSessions();
+  }, [loadQuizSessions]);
+
+  useEffect(() => {
+    if (!chapter) {
+      return;
+    }
+
+    ensureSession(
+      chapter.chapterId,
+      chapter.quiz.map((question) => question.id),
+    );
+  }, [chapter, ensureSession]);
+
+  useEffect(() => {
+    if (!currentQuestion || !session) {
+      return;
+    }
+
+    const saved = session.questionResults[currentQuestion.id];
+    setSelectedIndex(saved?.selectedOption);
+  }, [currentQuestion, session]);
+
   const score = useMemo(() => {
-    return quiz.reduce((total, question, index) => {
-      return total + (selectedIndexes[index] === question.correctAnswerIndex ? 1 : 0);
+    if (!session) {
+      return 0;
+    }
+
+    return quiz.reduce((total, question) => {
+      return total + (session.questionResults[question.id]?.status === 'correct' ? 1 : 0);
     }, 0);
-  }, [quiz, selectedIndexes]);
+  }, [quiz, session]);
+
+  const completedQuestionCount = useMemo(() => {
+    if (!session) {
+      return 0;
+    }
+
+    return quiz.reduce((total, question) => {
+      const status = session.questionResults[question.id]?.status;
+      return total + (status === 'correct' || status === 'incorrect' ? 1 : 0);
+    }, 0);
+  }, [quiz, session]);
 
   if (!chapter || !currentQuestion) {
     return (
@@ -35,20 +81,12 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
     );
   }
 
-  const selectedIndex = selectedIndexes[questionIndex];
+  const currentResult = session?.questionResults[currentQuestion.id];
+  const attemptsUsed = currentResult?.attempts ?? 0;
+  const isCorrect = currentResult?.status === 'correct';
+  const isLockedForNext = currentResult?.status === 'incorrect' && attemptsUsed >= maxAttempts;
 
-  const handleSelect = (index: number) => {
-    const copy = [...selectedIndexes];
-    copy[questionIndex] = index;
-    setSelectedIndexes(copy);
-  };
-
-  const handleNext = () => {
-    if (selectedIndex === undefined) {
-      Alert.alert('Choose one answer', 'Please select an answer first.');
-      return;
-    }
-
+  const finishOrNext = () => {
     if (questionIndex < quiz.length - 1) {
       setQuestionIndex((value) => value + 1);
       return;
@@ -56,9 +94,7 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
 
     setFinished(true);
 
-    const finalScore = quiz.reduce((total, question, index) => {
-      return total + (selectedIndexes[index] === question.correctAnswerIndex ? 1 : 0);
-    }, 0);
+    const finalScore = score;
 
     if (finalScore >= chapter.passingScore) {
       completeChapter({
@@ -70,17 +106,56 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
     }
   };
 
+  const handleSubmit = () => {
+    if (selectedIndex === undefined) {
+      Alert.alert('Choose one answer', 'Please select an answer first.');
+      return;
+    }
+
+    if (isCorrect || isLockedForNext) {
+      finishOrNext();
+      return;
+    }
+
+    const correct = selectedIndex === currentQuestion.correctAnswerIndex;
+    const nextAttempts = attemptsUsed + 1;
+
+    recordAttempt(
+      chapter.chapterId,
+      currentQuestion.id,
+      selectedIndex,
+      correct ? 'correct' : 'incorrect',
+    );
+
+    if (correct) {
+      return;
+    }
+
+    if (nextAttempts >= maxAttempts) {
+      return;
+    }
+
+    setSelectedIndex(undefined);
+  };
+
   if (finished) {
     const passed = score >= chapter.passingScore;
     const alreadyCompleted = Boolean(completedChapters[chapterId]);
+    const needsReview = Math.max(quiz.length - score, 0);
 
     return (
       <View style={styles.container}>
         <View style={styles.resultCard}>
           <Text style={styles.resultEmoji}>{passed ? '🎉' : '💪'}</Text>
-          <Text style={styles.resultTitle}>{passed ? 'Great job!' : 'Try again!'}</Text>
+          <Text style={styles.resultTitle}>{passed ? 'Great job!' : 'Keep practicing!'}</Text>
           <Text style={styles.resultText}>
-            Your score: {score}/{quiz.length}
+            Correct: {score}/{quiz.length}
+          </Text>
+          <Text style={styles.resultText}>
+            Questions to review: {needsReview}
+          </Text>
+          <Text style={styles.resultText}>
+            Questions completed: {completedQuestionCount}/{quiz.length}
           </Text>
 
           {passed ? (
@@ -107,11 +182,11 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
               style={styles.secondaryButton}
               onPress={() => {
                 setQuestionIndex(0);
-                setSelectedIndexes([]);
+                setSelectedIndex(undefined);
                 setFinished(false);
               }}
             >
-              <Text style={styles.secondaryButtonText}>Retry Quiz</Text>
+              <Text style={styles.secondaryButtonText}>Review Quiz</Text>
             </Pressable>
           ) : null}
         </View>
@@ -125,16 +200,22 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
         Question {questionIndex + 1} of {quiz.length}
       </Text>
 
+      <Text style={styles.attemptText}>
+        Attempts: {attemptsUsed}/{maxAttempts}
+      </Text>
+
       <Text style={styles.question}>{currentQuestion.question}</Text>
 
       {currentQuestion.options.map((option, index) => (
         <Pressable
-          key={option}
+          key={`${currentQuestion.id}-${option}`}
+          disabled={isCorrect || isLockedForNext}
           style={[
             styles.option,
             selectedIndex === index && styles.selectedOption,
+            isCorrect && index === currentQuestion.correctAnswerIndex && styles.correctOption,
           ]}
-          onPress={() => handleSelect(index)}
+          onPress={() => setSelectedIndex(index)}
         >
           <Text
             style={[
@@ -147,9 +228,29 @@ export default function QuizScreen({ route, navigation }: ScreenProps<'Quiz'>) {
         </Pressable>
       ))}
 
-      <Pressable style={styles.primaryButton} onPress={handleNext}>
+      {currentResult?.status === 'incorrect' && !isLockedForNext ? (
+        <Text style={styles.feedbackText}>
+          ❌ Not quite. Try again. You have {maxAttempts - attemptsUsed} attempt(s) left.
+        </Text>
+      ) : null}
+
+      {isCorrect ? (
+        <Text style={styles.correctFeedback}>⭐ Correct! Great job.</Text>
+      ) : null}
+
+      {isLockedForNext ? (
+        <Text style={styles.feedbackText}>
+          Maximum attempts reached. This question is incomplete and will need review.
+        </Text>
+      ) : null}
+
+      <Pressable style={styles.primaryButton} onPress={handleSubmit}>
         <Text style={styles.primaryButtonText}>
-          {questionIndex < quiz.length - 1 ? 'Next' : 'Finish Quiz'}
+          {isCorrect || isLockedForNext
+            ? questionIndex < quiz.length - 1
+              ? 'Next'
+              : 'Finish Quiz'
+            : 'Check Answer'}
         </Text>
       </Pressable>
     </View>
@@ -169,7 +270,12 @@ const styles = StyleSheet.create({
   progress: {
     color: '#64748B',
     fontWeight: '700',
-    marginBottom: 10,
+    marginBottom: 4,
+  },
+  attemptText: {
+    color: '#2563EB',
+    fontWeight: '800',
+    marginBottom: 14,
   },
   question: {
     fontSize: 24,
@@ -189,6 +295,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563EB',
     borderColor: '#2563EB',
   },
+  correctOption: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#16A34A',
+  },
   optionText: {
     fontSize: 17,
     fontWeight: '700',
@@ -196,6 +306,18 @@ const styles = StyleSheet.create({
   },
   selectedOptionText: {
     color: '#FFFFFF',
+  },
+  feedbackText: {
+    color: '#DC2626',
+    fontWeight: '700',
+    marginTop: 4,
+    lineHeight: 21,
+  },
+  correctFeedback: {
+    color: '#16A34A',
+    fontWeight: '900',
+    marginTop: 4,
+    fontSize: 17,
   },
   primaryButton: {
     marginTop: 12,
@@ -240,6 +362,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     color: '#64748B',
     fontSize: 16,
+    textAlign: 'center',
   },
   rewardText: {
     marginTop: 10,
