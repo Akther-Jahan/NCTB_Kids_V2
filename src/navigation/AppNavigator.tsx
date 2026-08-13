@@ -4,8 +4,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "./routes";
 import SubjectSelectionScreen from "../features/learning/screens/SubjectSelectionScreen";
 import ChapterPathScreen from "../features/learning/screens/ChapterPathScreen";
-import LessonPlayerScreen from "../features/learning/screens/LessonPlayerScreen";
-import ProgressScreen from "../features/progress/screens/ProgressScreen";
+import LessonPlayerScreenV2 from "../features/learning/screens/LessonPlayerScreenV2";
+import ProgressScreenV2 from "../features/progress/screens/ProgressScreenV2";
 import DonationScreen from "../features/donation/screens/DonationScreen";
 import SettingsScreen from "../features/settings/screens/SettingsScreen";
 import AdultGateScreen from "../features/parent/screens/AdultGateScreen";
@@ -14,7 +14,7 @@ import LoginScreen from "../features/auth/screens/LoginScreen";
 import RegisterScreen from "../features/auth/screens/RegisterScreen";
 import ForgotPasswordScreen from "../features/auth/screens/ForgotPasswordScreen";
 import AdminLoginScreen from "../features/admin/screens/AdminLoginScreen";
-import AdminDashboardScreen from "../features/admin/screens/AdminDashboardScreen";
+import LiveOverview from "../features/admin/components/LiveOverview";
 import AdminContentEditorScreen from "../features/admin/screens/AdminContentEditorScreen";
 import AdminQuizEditorScreen from "../features/admin/screens/AdminQuizEditorScreen";
 
@@ -43,11 +43,11 @@ export default function AppNavigator() {
       />
       <Stack.Screen
         name="Lesson"
-        component={LessonPlayerScreen}
+        component={LessonPlayerScreenV2}
       />
       <Stack.Screen
         name="Progress"
-        component={ProgressScreen}
+        component={ProgressScreenV2}
       />
       <Stack.Screen
         name="Donation"
@@ -90,7 +90,7 @@ export default function AppNavigator() {
       />
       <Stack.Screen
         name="AdminDashboard"
-        component={AdminDashboardScreen}
+        component={LiveOverview}
       />
       <Stack.Screen
         name="AdminContentEditor"

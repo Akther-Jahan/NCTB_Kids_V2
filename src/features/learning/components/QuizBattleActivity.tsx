@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -11,65 +12,98 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import * as Speech from "expo-speech";
 
+import type { QuestionResult } from "../types/questionResults";
+import {
+  speakLearningVoice,
+  speakOptionThenFeedback,
+  stopLearningVoice,
+} from "../services/learningVoice";
 import MimiCharacter from "./MimiCharacter";
+import RewardToast from "./RewardToast";
+
+type SubmitResult = {
+  question: QuestionResult;
+  canGoNext: boolean;
+  becameCorrect: boolean;
+  rewardAllowed: boolean;
+};
 
 type Props = {
   prompt: string;
   options: string[];
   answer: number;
   hint: string;
-  attempts: number;
-  onAttempt: (correct: boolean) => void;
+  attempts?: number;
+  maxAttempts?: number;
+  result?: QuestionResult;
+  onSelectOption?: (index: number) => void;
+  onSubmitAnswer?: (
+    index: number,
+    correct: boolean,
+  ) => SubmitResult;
+  onAttempt?: (correct: boolean) => void;
+  onContinueUnlocked?: () => void;
+  onRewardGranted?: () => void;
 };
 
-function speakBangla(text: string) {
-  void Speech.stop();
+function clampMaxAttempts(value?: number) {
+  if (!Number.isFinite(value)) {
+    return 3;
+  }
 
-  Speech.speak(text, {
-    language: "bn-BD",
-    rate: 0.74,
-    pitch: 1.05,
-  });
+  return Math.max(
+    1,
+    Math.min(5, Math.round(value as number)),
+  );
 }
 
 export default function QuizBattleActivity({
   prompt,
   options,
   answer,
+  attempts = 0,
   hint,
-  attempts,
+  maxAttempts = 3,
+  result,
+  onSelectOption,
+  onSubmitAnswer,
   onAttempt,
+  onContinueUnlocked,
+  onRewardGranted,
 }: Props) {
   const { width } = useWindowDimensions();
-
   const isSmallPhone = width < 360;
   const isTablet = width >= 600;
+  const limit = clampMaxAttempts(maxAttempts);
 
   const entrance = useRef(
     new Animated.Value(0),
   ).current;
-
   const shake = useRef(
     new Animated.Value(0),
   ).current;
-
   const successScale = useRef(
     new Animated.Value(1),
   ).current;
 
   const [selected, setSelected] =
-    useState<number | null>(null);
-
+    useState<number | null>(
+      result?.selectedOption ?? null,
+    );
+  const [localAttempts, setLocalAttempts] =
+    useState(result?.attemptsInRound ?? attempts);
+  const [localStatus, setLocalStatus] = useState<
+    QuestionResult["status"]
+  >(result?.status ?? "unanswered");
   const [wrongOptions, setWrongOptions] =
     useState<number[]>([]);
-
-  const [localAttempts, setLocalAttempts] =
-    useState(0);
-
-  const [correct, setCorrect] =
+  const [rewardVisible, setRewardVisible] =
     useState(false);
+
+  const correct = localStatus === "correct";
+  const canGoNext =
+    correct || localAttempts >= limit;
 
   useEffect(() => {
     Animated.spring(entrance, {
@@ -80,38 +114,64 @@ export default function QuizBattleActivity({
     }).start();
 
     const timer = setTimeout(() => {
-      speakBangla(prompt);
+      void speakLearningVoice(prompt);
     }, 350);
 
     return () => {
       clearTimeout(timer);
-      void Speech.stop();
+      void stopLearningVoice();
     };
   }, [entrance, prompt]);
+
+  useEffect(() => {
+    if (!result) {
+      return;
+    }
+
+    setSelected(result.selectedOption ?? null);
+    setLocalAttempts(result.attemptsInRound);
+    setLocalStatus(result.status);
+  }, [result]);
 
   const opacity = entrance.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 1],
   });
-
   const translateY = entrance.interpolate({
     inputRange: [0, 1],
-    outputRange: [30, 0],
+    outputRange: [24, 0],
   });
-
   const shakeX = shake.interpolate({
     inputRange: [-1, 0, 1],
     outputRange: [-10, 0, 10],
   });
-
-  const totalAttempts =
-    attempts + localAttempts;
 
   const characterSize = isTablet
     ? 205
     : isSmallPhone
       ? 125
       : 155;
+
+  const helperText = useMemo(() => {
+    if (correct) {
+      return "সঠিক উত্তর! এখন পরের ধাপে যেতে পারো।";
+    }
+
+    if (canGoNext) {
+      return "চাইলে আবার চেষ্টা করো, অথবা পরের প্রশ্নে যাও।";
+    }
+
+    if (localAttempts > 0) {
+      return hint || "প্রশ্নটি মন দিয়ে পড়ে আবার চেষ্টা করো।";
+    }
+
+    return "একটি উত্তর বেছে নিয়ে জমা দাও।";
+  }, [
+    canGoNext,
+    correct,
+    hint,
+    localAttempts,
+  ]);
 
   const runWrongAnimation = () => {
     shake.setValue(0);
@@ -143,8 +203,8 @@ export default function QuizBattleActivity({
   const runSuccessAnimation = () => {
     Animated.sequence([
       Animated.timing(successScale, {
-        toValue: 1.1,
-        duration: 150,
+        toValue: 1.08,
+        duration: 140,
         useNativeDriver: true,
       }),
       Animated.spring(successScale, {
@@ -161,35 +221,82 @@ export default function QuizBattleActivity({
     }
 
     setSelected(index);
-    setLocalAttempts(
-      (current) => current + 1,
-    );
+    onSelectOption?.(index);
+    void speakLearningVoice(options[index]);
+  };
 
-    const result = index === answer;
+  const submit = () => {
+    if (selected === null || correct) {
+      return;
+    }
 
-    onAttempt(result);
+    const isCorrect = selected === answer;
+    let nextAttempts = localAttempts + 1;
+    let nextStatus: QuestionResult["status"] =
+      isCorrect
+        ? "correct"
+        : nextAttempts >= limit
+          ? "needs_retry"
+          : "unanswered";
+    let rewardAllowed = isCorrect;
+    let continueUnlocked =
+      isCorrect || nextAttempts >= limit;
 
-    if (result) {
-      setCorrect(true);
-      runSuccessAnimation();
-
-      speakBangla(
-        "সঠিক উত্তর! দারুণ করেছো।",
+    if (onSubmitAnswer) {
+      const submitResult = onSubmitAnswer(
+        selected,
+        isCorrect,
       );
 
+      nextAttempts =
+        submitResult.question.attemptsInRound;
+      nextStatus = submitResult.question.status;
+      rewardAllowed = submitResult.rewardAllowed;
+      continueUnlocked = submitResult.canGoNext;
+    } else {
+      onAttempt?.(isCorrect);
+    }
+
+    setLocalAttempts(nextAttempts);
+    setLocalStatus(nextStatus);
+
+    if (isCorrect) {
+      runSuccessAnimation();
+
+      if (rewardAllowed) {
+        setRewardVisible(true);
+        onRewardGranted?.();
+      }
+
+      if (continueUnlocked) {
+        onContinueUnlocked?.();
+      }
+
+      void speakOptionThenFeedback(
+        options[selected],
+        "সঠিক উত্তর! দারুণ করেছো।",
+      );
       return;
     }
 
     setWrongOptions((current) =>
-      current.includes(index)
+      current.includes(selected)
         ? current
-        : [...current, index],
+        : [...current, selected],
     );
-
     runWrongAnimation();
 
-    speakBangla(
-      "উত্তরটি ঠিক হয়নি। ইঙ্গিত দেখে আবার চেষ্টা করো।",
+    if (continueUnlocked) {
+      onContinueUnlocked?.();
+    }
+
+    const feedback = continueUnlocked
+      ? "এই প্রশ্নটি পরে আবার চেষ্টা করব। চাইলে এখন আবার চেষ্টা করো, অথবা পরের প্রশ্নে যাও।"
+      : `${hint || "ইঙ্গিত দেখে আবার চেষ্টা করো।"}`;
+
+    void speakOptionThenFeedback(
+      options[selected],
+      feedback,
     );
   };
 
@@ -203,6 +310,16 @@ export default function QuizBattleActivity({
         },
       ]}
     >
+      <RewardToast
+        visible={rewardVisible}
+        title="দারুণ!"
+        message="সঠিক উত্তর"
+        stars={1}
+        onHidden={() =>
+          setRewardVisible(false)
+        }
+      />
+
       <View style={styles.header}>
         <View style={styles.headerIcon}>
           <Text style={styles.headerIconText}>
@@ -214,7 +331,6 @@ export default function QuizBattleActivity({
           <Text style={styles.eyebrow}>
             QUIZ BATTLE
           </Text>
-
           <Text
             style={[
               styles.title,
@@ -229,9 +345,8 @@ export default function QuizBattleActivity({
           <Text style={styles.attemptLabel}>
             TRY
           </Text>
-
           <Text style={styles.attemptValue}>
-            {totalAttempts + 1}
+            {Math.min(localAttempts + 1, limit)}/{limit}
           </Text>
         </View>
       </View>
@@ -243,18 +358,18 @@ export default function QuizBattleActivity({
             {
               width: correct
                 ? "100%"
-                : selected === null
-                  ? "20%"
-                  : "60%",
+                : `${Math.max(
+                    20,
+                    Math.round(
+                      (localAttempts / limit) * 100,
+                    ),
+                  )}%`,
             },
           ]}
         />
       </View>
 
       <View style={styles.stage}>
-        <View style={styles.orbOne} />
-        <View style={styles.orbTwo} />
-
         <MimiCharacter
           emotion={
             correct
@@ -265,16 +380,6 @@ export default function QuizBattleActivity({
           }
           size={characterSize}
         />
-
-        <View style={styles.guideBadge}>
-          <Text style={styles.guideDot}>
-            ●
-          </Text>
-
-          <Text style={styles.guideText}>
-            QUIZ COACH
-          </Text>
-        </View>
 
         <Animated.View
           style={[
@@ -290,33 +395,18 @@ export default function QuizBattleActivity({
           ]}
         >
           <View style={styles.questionTop}>
-            <View style={styles.questionIcon}>
-              <Text
-                style={
-                  styles.questionIconText
-                }
-              >
-                ❓
-              </Text>
-            </View>
-
             <View style={styles.questionCopy}>
-              <Text
-                style={styles.questionLabel}
-              >
+              <Text style={styles.questionLabel}>
                 BATTLE QUESTION
               </Text>
-
-              <Text
-                style={styles.questionHelper}
-              >
-                উত্তর বেছে নাও
+              <Text style={styles.questionHelper}>
+                উত্তর বেছে নিয়ে জমা দাও
               </Text>
             </View>
 
             <Pressable
               onPress={() =>
-                speakBangla(prompt)
+                void speakLearningVoice(prompt)
               }
               style={({ pressed }) => [
                 styles.listenButton,
@@ -326,11 +416,8 @@ export default function QuizBattleActivity({
               <Text style={styles.listenIcon}>
                 🔊
               </Text>
-
               {!isSmallPhone ? (
-                <Text
-                  style={styles.listenText}
-                >
+                <Text style={styles.listenText}>
                   শুনি
                 </Text>
               ) : null}
@@ -340,8 +427,7 @@ export default function QuizBattleActivity({
           <Text
             style={[
               styles.question,
-              isTablet &&
-                styles.questionTablet,
+              isTablet && styles.questionTablet,
             ]}
           >
             {prompt}
@@ -349,31 +435,13 @@ export default function QuizBattleActivity({
         </Animated.View>
       </View>
 
-      <View style={styles.answerHeader}>
-        <View>
-          <Text style={styles.eyebrow}>
-            CHOOSE ONE
-          </Text>
-
-          <Text style={styles.answerTitle}>
-            তোমার উত্তর
-          </Text>
-        </View>
-
-        <View style={styles.optionCount}>
-          <Text style={styles.optionCountText}>
-            {options.length} OPTIONS
-          </Text>
-        </View>
-      </View>
-
       <View style={styles.optionList}>
         {options.map((option, index) => {
-          const isWrong =
-            wrongOptions.includes(index);
-
-          const isCorrect =
+          const isSelected = selected === index;
+          const isCorrectOption =
             correct && index === answer;
+          const wasWrong =
+            wrongOptions.includes(index);
 
           return (
             <Pressable
@@ -382,8 +450,12 @@ export default function QuizBattleActivity({
               onPress={() => choose(index)}
               style={({ pressed }) => [
                 styles.option,
-                isWrong && styles.optionWrong,
-                isCorrect &&
+                isSelected &&
+                  styles.optionSelected,
+                wasWrong &&
+                  !isSelected &&
+                  styles.optionPreviouslyWrong,
+                isCorrectOption &&
                   styles.optionCorrect,
                 pressed &&
                   !correct &&
@@ -393,152 +465,121 @@ export default function QuizBattleActivity({
               <View
                 style={[
                   styles.optionLetter,
-                  isWrong &&
-                    styles.optionLetterWrong,
-                  isCorrect &&
+                  isSelected &&
+                    styles.optionLetterSelected,
+                  isCorrectOption &&
                     styles.optionLetterCorrect,
                 ]}
               >
                 <Text
                   style={[
                     styles.optionLetterText,
-                    (isWrong || isCorrect) &&
-                      styles.optionLetterActive,
+                    (isSelected ||
+                      isCorrectOption) &&
+                      styles.optionLetterTextActive,
                   ]}
                 >
-                  {isCorrect
+                  {isCorrectOption
                     ? "✓"
-                    : isWrong
-                      ? "×"
-                      : String.fromCharCode(
-                          65 + index,
-                        )}
+                    : String.fromCharCode(
+                        65 + index,
+                      )}
                 </Text>
               </View>
 
               <Text
                 style={[
                   styles.optionText,
-                  isWrong &&
-                    styles.optionTextWrong,
-                  isCorrect &&
+                  isCorrectOption &&
                     styles.optionTextCorrect,
                 ]}
               >
                 {option}
               </Text>
 
-              <Text
-                style={[
-                  styles.status,
-                  isWrong &&
-                    styles.statusWrong,
-                  isCorrect &&
-                    styles.statusCorrect,
-                ]}
-              >
-                {isCorrect
-                  ? "সঠিক"
-                  : isWrong
-                    ? "আবার"
-                    : "বেছে নাও"}
+              <Text style={styles.optionVoice}>
+                🔊
               </Text>
             </Pressable>
           );
         })}
       </View>
 
-      {selected !== null && !correct ? (
-        <View style={styles.hintCard}>
-          <View style={styles.hintIcon}>
-            <Text style={styles.hintEmoji}>
-              💡
-            </Text>
-          </View>
-
-          <View style={styles.hintCopy}>
-            <Text style={styles.hintLabel}>
-              MIMI'S HINT
-            </Text>
-
-            <Text style={styles.hintText}>
-              {hint ||
-                "প্রশ্নটি মন দিয়ে পড়ে আবার চেষ্টা করো।"}
-            </Text>
-          </View>
-
-          <Pressable
-            onPress={() =>
-              speakBangla(
-                hint ||
-                  "প্রশ্নটি মন দিয়ে পড়ে আবার চেষ্টা করো।",
-              )
-            }
-            style={styles.hintListen}
-          >
-            <Text>🔊</Text>
-          </Pressable>
-        </View>
+      {!correct ? (
+        <Pressable
+          disabled={selected === null}
+          onPress={submit}
+          style={({ pressed }) => [
+            styles.submitButton,
+            selected === null &&
+              styles.submitButtonDisabled,
+            pressed &&
+              selected !== null &&
+              styles.pressed,
+          ]}
+        >
+          <Text style={styles.submitText}>
+            জমা দাও
+          </Text>
+        </Pressable>
       ) : null}
 
-      {correct ? (
-        <View style={styles.successCard}>
-          <View style={styles.successIcon}>
-            <Text style={styles.successEmoji}>
-              🏆
-            </Text>
-          </View>
+      <View
+        style={[
+          styles.feedbackCard,
+          correct && styles.feedbackSuccess,
+          canGoNext &&
+            !correct &&
+            styles.feedbackRetry,
+        ]}
+      >
+        <Text style={styles.feedbackIcon}>
+          {correct
+            ? "🏆"
+            : canGoNext
+              ? "🔁"
+              : "💡"}
+        </Text>
 
-          <View style={styles.successCopy}>
-            <Text style={styles.successLabel}>
-              BATTLE WON
-            </Text>
-
-            <Text style={styles.successTitle}>
-              সঠিক উত্তর!
-            </Text>
-
-            <Text style={styles.successText}>
-              {Math.max(
-                1,
-                totalAttempts,
-              )}{" "}
-              বার চেষ্টা করে শেষ করেছো
-            </Text>
-          </View>
-
-          <Text style={styles.successStar}>
-            ⭐
+        <View style={styles.feedbackCopy}>
+          <Text style={styles.feedbackTitle}>
+            {correct
+              ? "সঠিক উত্তর!"
+              : canGoNext
+                ? "পরে আবার করব"
+                : localAttempts > 0
+                  ? "MIMI'S HINT"
+                  : "READY?"}
+          </Text>
+          <Text style={styles.feedbackText}>
+            {helperText}
           </Text>
         </View>
-      ) : (
-        <View style={styles.footerHint}>
-          <Text style={styles.footerIcon}>
-            🎯
-          </Text>
 
-          <Text style={styles.footerText}>
-            সঠিক উত্তর না পাওয়া পর্যন্ত চেষ্টা
-            চালিয়ে যাও
-          </Text>
-        </View>
-      )}
+        <Pressable
+          onPress={() =>
+            void speakLearningVoice(helperText)
+          }
+          style={styles.feedbackListen}
+        >
+          <Text>🔊</Text>
+        </Pressable>
+      </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    position: "relative",
     width: "100%",
     alignItems: "center",
   },
-
   header: {
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
   },
-
   headerIcon: {
     width: 46,
     height: 46,
@@ -547,55 +588,46 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: "#7653BD",
   },
-
   headerIconText: {
     fontSize: 22,
   },
-
   headerCopy: {
     flex: 1,
     marginLeft: 11,
   },
-
   eyebrow: {
     fontSize: 8,
     letterSpacing: 1.2,
     fontWeight: "900",
     color: "#958A9A",
   },
-
   title: {
     marginTop: 3,
     fontSize: 18,
     fontWeight: "900",
     color: "#2B252F",
   },
-
   titleTablet: {
     fontSize: 22,
   },
-
   attemptBadge: {
-    minWidth: 50,
+    minWidth: 58,
     alignItems: "center",
     paddingVertical: 6,
     borderRadius: 15,
     backgroundColor: "#EEE8F8",
   },
-
   attemptLabel: {
     fontSize: 7,
     fontWeight: "900",
     color: "#94889A",
   },
-
   attemptValue: {
     marginTop: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "900",
     color: "#7653BD",
   },
-
   progressTrack: {
     width: "100%",
     height: 8,
@@ -604,404 +636,205 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#E7E1EA",
   },
-
   progressFill: {
     height: "100%",
     borderRadius: 4,
     backgroundColor: "#7653BD",
   },
-
   stage: {
-    position: "relative",
     width: "100%",
     alignItems: "center",
-    overflow: "hidden",
     marginTop: 13,
-    paddingTop: 7,
-    paddingBottom: 16,
-    borderRadius: 29,
+    paddingTop: 8,
+    paddingBottom: 14,
+    borderRadius: 28,
     backgroundColor: "#E5DBFA",
   },
-
-  orbOne: {
-    position: "absolute",
-    top: -40,
-    right: -35,
-    width: 145,
-    height: 145,
-    borderRadius: 73,
-    backgroundColor:
-      "rgba(255,255,255,0.34)",
-  },
-
-  orbTwo: {
-    position: "absolute",
-    left: -55,
-    bottom: -70,
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor:
-      "rgba(255,255,255,0.23)",
-  },
-
-  guideBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: -13,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 13,
-    backgroundColor:
-      "rgba(35,29,39,0.84)",
-  },
-
-  guideDot: {
-    marginRight: 5,
-    fontSize: 8,
-    color: "#6FE16A",
-  },
-
-  guideText: {
-    fontSize: 8,
-    letterSpacing: 0.9,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
-
   questionCard: {
     width: "92%",
-    marginTop: 11,
-    padding: 15,
+    marginTop: -8,
+    padding: 16,
     borderWidth: 2,
-    borderColor: "#E2DCE6",
-    borderRadius: 24,
+    borderColor: "#FFFFFF",
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
   },
-
   questionCardCorrect: {
-    borderColor: "#63BD78",
-    backgroundColor: "#F2FBF4",
+    borderColor: "#78C96A",
+    backgroundColor: "#F5FFF2",
   },
-
   questionTop: {
     flexDirection: "row",
     alignItems: "center",
   },
-
-  questionIcon: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#FFF0C5",
-  },
-
-  questionIconText: {
-    fontSize: 19,
-  },
-
   questionCopy: {
     flex: 1,
-    marginLeft: 10,
   },
-
   questionLabel: {
     fontSize: 8,
-    letterSpacing: 1,
+    letterSpacing: 1.1,
     fontWeight: "900",
-    color: "#7653BD",
+    color: "#8D8292",
   },
-
   questionHelper: {
     marginTop: 2,
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#978D9C",
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#77707C",
   },
-
   listenButton: {
-    minHeight: 37,
+    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
+    gap: 5,
     paddingHorizontal: 10,
-    borderRadius: 19,
-    backgroundColor: "#E6F4FF",
+    borderRadius: 18,
+    backgroundColor: "#EAF5FF",
   },
-
   listenIcon: {
-    fontSize: 16,
+    fontSize: 14,
   },
-
   listenText: {
-    marginLeft: 5,
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "900",
-    color: "#277AA5",
+    color: "#287DA4",
   },
-
   question: {
-    marginTop: 16,
-    fontSize: 20,
+    marginTop: 12,
+    fontSize: 21,
     lineHeight: 30,
     fontWeight: "900",
-    textAlign: "center",
-    color: "#29232D",
+    color: "#29232C",
   },
-
   questionTablet: {
-    fontSize: 25,
-    lineHeight: 37,
+    fontSize: 26,
+    lineHeight: 36,
   },
-
-  answerHeader: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 16,
-  },
-
-  answerTitle: {
-    marginTop: 3,
-    fontSize: 17,
-    fontWeight: "900",
-    color: "#2C2630",
-  },
-
-  optionCount: {
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    borderRadius: 14,
-    backgroundColor: "#EEE8F8",
-  },
-
-  optionCountText: {
-    fontSize: 8,
-    fontWeight: "900",
-    color: "#7653BD",
-  },
-
   optionList: {
     width: "100%",
-    marginTop: 11,
+    marginTop: 15,
+    gap: 9,
   },
-
   option: {
-    minHeight: 66,
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 10,
-    padding: 9,
+    paddingHorizontal: 12,
     borderWidth: 2,
-    borderColor: "#E4DDE7",
-    borderRadius: 22,
+    borderColor: "#E3DEE6",
+    borderRadius: 19,
     backgroundColor: "#FFFFFF",
   },
-
-  optionWrong: {
-    borderColor: "#E58B8B",
-    backgroundColor: "#FFF1F1",
+  optionSelected: {
+    borderColor: "#7653BD",
+    backgroundColor: "#F4EEFF",
   },
-
+  optionPreviouslyWrong: {
+    opacity: 0.62,
+  },
   optionCorrect: {
-    borderColor: "#63BD78",
-    backgroundColor: "#ECF9EF",
+    borderColor: "#6DBB61",
+    backgroundColor: "#EFFBEA",
   },
-
   optionPressed: {
-    transform: [{ translateY: 3 }],
+    transform: [{ scale: 0.99 }],
   },
-
   optionLetter: {
-    width: 46,
-    height: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: "#EEE8F8",
-  },
-
-  optionLetterWrong: {
-    backgroundColor: "#E8A5A5",
-  },
-
-  optionLetterCorrect: {
-    backgroundColor: "#70C984",
-  },
-
-  optionLetterText: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#7653BD",
-  },
-
-  optionLetterActive: {
-    color: "#FFFFFF",
-  },
-
-  optionText: {
-    flex: 1,
-    marginHorizontal: 12,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: "900",
-    color: "#342D38",
-  },
-
-  optionTextWrong: {
-    color: "#974747",
-  },
-
-  optionTextCorrect: {
-    color: "#326641",
-  },
-
-  status: {
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 12,
-    backgroundColor: "#F4F0F6",
-    fontSize: 7,
-    fontWeight: "900",
-    color: "#8B808F",
-  },
-
-  statusWrong: {
-    backgroundColor: "#F1C5C5",
-    color: "#934747",
-  },
-
-  statusCorrect: {
-    backgroundColor: "#C7EBCF",
-    color: "#326641",
-  },
-
-  hintCard: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 4,
-    padding: 13,
-    borderRadius: 20,
-    backgroundColor: "#FFF4D1",
-  },
-
-  hintIcon: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-  },
-
-  hintEmoji: {
-    fontSize: 20,
-  },
-
-  hintCopy: {
-    flex: 1,
-    marginLeft: 10,
-  },
-
-  hintLabel: {
-    fontSize: 8,
-    letterSpacing: 0.9,
-    fontWeight: "900",
-    color: "#947B32",
-  },
-
-  hintText: {
-    marginTop: 3,
-    fontSize: 11,
-    lineHeight: 17,
-    fontWeight: "800",
-    color: "#615431",
-  },
-
-  hintListen: {
     width: 36,
     height: 36,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 18,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#EEEAF1",
   },
-
-  successCard: {
+  optionLetterSelected: {
+    backgroundColor: "#7653BD",
+  },
+  optionLetterCorrect: {
+    backgroundColor: "#68B75C",
+  },
+  optionLetterText: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#625A66",
+  },
+  optionLetterTextActive: {
+    color: "#FFFFFF",
+  },
+  optionText: {
+    flex: 1,
+    marginLeft: 12,
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#312B34",
+  },
+  optionTextCorrect: {
+    color: "#317A2A",
+  },
+  optionVoice: {
+    marginLeft: 8,
+    fontSize: 16,
+  },
+  submitButton: {
+    width: "100%",
+    minHeight: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 14,
+    borderRadius: 26,
+    backgroundColor: "#7653BD",
+  },
+  submitButtonDisabled: {
+    backgroundColor: "#C9C3CE",
+  },
+  submitText: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
+  feedbackCard: {
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 4,
-    padding: 13,
-    borderRadius: 21,
-    backgroundColor: "#E4F7E8",
+    marginTop: 13,
+    padding: 12,
+    borderRadius: 18,
+    backgroundColor: "#FFF4D5",
   },
-
-  successIcon: {
-    width: 48,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+  feedbackSuccess: {
+    backgroundColor: "#E7F8E3",
   },
-
-  successEmoji: {
+  feedbackRetry: {
+    backgroundColor: "#F0E9FF",
+  },
+  feedbackIcon: {
     fontSize: 24,
   },
-
-  successCopy: {
+  feedbackCopy: {
     flex: 1,
     marginLeft: 10,
   },
-
-  successLabel: {
-    fontSize: 8,
-    letterSpacing: 1,
+  feedbackTitle: {
+    fontSize: 11,
     fontWeight: "900",
-    color: "#548160",
+    color: "#4B404F",
   },
-
-  successTitle: {
+  feedbackText: {
     marginTop: 2,
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#2E623B",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: "#625866",
   },
-
-  successText: {
-    marginTop: 2,
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#5F7A66",
-  },
-
-  successStar: {
-    fontSize: 25,
-  },
-
-  footerHint: {
-    flexDirection: "row",
+  feedbackListen: {
+    width: 34,
+    height: 34,
     alignItems: "center",
-    marginTop: 3,
+    justifyContent: "center",
+    borderRadius: 17,
+    backgroundColor: "#FFFFFF",
   },
-
-  footerIcon: {
-    marginRight: 6,
-    fontSize: 14,
-  },
-
-  footerText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#887E8D",
-  },
-
   pressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.96 }],
+    opacity: 0.88,
   },
 });

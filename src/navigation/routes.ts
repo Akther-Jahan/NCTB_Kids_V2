@@ -6,7 +6,10 @@ export type RootStackParamList = {
     classId: number;
     subjectId: string;
   };
-  Lesson: { chapterId: string };
+  Lesson: {
+    chapterId: string;
+    retryIncomplete?: boolean;
+  };
   Leaderboard: undefined;
   Progress: undefined;
   Donation: undefined;

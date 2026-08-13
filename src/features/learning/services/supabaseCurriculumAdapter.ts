@@ -2,8 +2,8 @@ import type {
   Activity,
   CurriculumChapter,
 } from "../data/curriculum";
-
 import type {
+  PuzzlePayload,
   SupabaseCurriculumChapter,
   SupabaseLessonActivity,
   SupabaseQuizQuestion,
@@ -20,21 +20,16 @@ export function adaptSupabaseChapter(
 ): CurriculumChapter {
   const orderedActivities = [
     ...chapter.lesson_activities,
-  ].sort(
-    (a, b) => a.order_index - b.order_index,
-  );
+  ].sort((a, b) => a.order_index - b.order_index);
 
-  const activities = orderedActivities.flatMap(
-    (activity) =>
-      adaptActivity(chapter, activity),
+  const activities = orderedActivities.flatMap((activity) =>
+    adaptActivity(chapter, activity),
   );
 
   return {
     id: chapter.id,
     title: chapter.title_bn,
-    subtitle:
-      chapter.summary_bn ??
-      `পাঠ ${chapter.chapter_number}`,
+    subtitle: chapter.summary_bn ?? `পাঠ ${chapter.chapter_number}`,
     icon: options.chapterIcon ?? "📘",
     nextChapterId: options.nextChapterId,
     activities,
@@ -46,44 +41,30 @@ function adaptActivity(
   activity: SupabaseLessonActivity,
 ): Activity[] {
   const title =
-    activity.title_bn ??
-    activity.title_en ??
-    "শেখার কাজ";
-
+    activity.title_bn ?? activity.title_en ?? "শেখার কাজ";
   const instruction =
-    activity.instruction_bn ??
-    activity.instruction_en ??
-    "";
+    activity.instruction_bn ?? activity.instruction_en ?? "";
 
   switch (activity.activity_type) {
-    case "story_snippet": {
+    case "story_snippet":
       return activity.payload.slides.flatMap(
         (slide, index): Activity[] => {
           const text = (
-            slide.text_bn ||
-            slide.speech_bn ||
-            ""
+            slide.text_bn || slide.speech_bn || ""
           ).trim();
-
-          if (!text) {
-            return [];
-          }
+          if (!text) return [];
 
           return [
             {
-              id: `${activity.id}-${
-                slide.id || index + 1
-              }`,
+              id: `${activity.id}-${slide.id || index + 1}`,
               type: "snippet",
               title,
-              imageEmoji:
-                slide.emoji ?? "📖",
+              imageEmoji: slide.emoji ?? "📖",
               lines: [text],
             },
           ];
         },
       );
-    }
 
     case "image_lesson":
       return [
@@ -92,15 +73,11 @@ function adaptActivity(
           type: "image_lesson",
           title,
           instruction,
-          imageUrl:
-            activity.payload.image_url,
-          pageStart:
-            activity.payload.page_start,
-          pageEnd:
-            activity.payload.page_end,
+          imageUrl: activity.payload.image_url,
+          pageStart: activity.payload.page_start,
+          pageEnd: activity.payload.page_end,
           sourceLabel:
-            activity.payload.source_label ??
-            "NCTB পাঠ্যবই",
+            activity.payload.source_label ?? "NCTB পাঠ্যবই",
         },
       ];
 
@@ -108,16 +85,11 @@ function adaptActivity(
       return activity.payload.items.flatMap(
         (item, index): Activity[] => {
           const text = item.text_bn.trim();
-
-          if (!text) {
-            return [];
-          }
+          if (!text) return [];
 
           return [
             {
-              id: `${activity.id}-${
-                item.id || index + 1
-              }`,
+              id: `${activity.id}-${item.id || index + 1}`,
               type: "voice",
               prompt: instruction || title,
               word: text,
@@ -145,22 +117,18 @@ function adaptActivity(
           emoji: card.emoji ?? "🖼️",
           word: card.word_bn,
         }))
-        .filter(
-          (card) => card.word.trim().length > 0,
-        );
+        .filter((card) => card.word.trim().length > 0);
 
-      if (!cards.length) {
-        return [];
-      }
-
-      return [
-        {
-          id: activity.id,
-          type: "flashcard",
-          prompt: instruction || title,
-          cards,
-        },
-      ];
+      return cards.length
+        ? [
+            {
+              id: activity.id,
+              type: "flashcard",
+              prompt: instruction || title,
+              cards,
+            },
+          ]
+        : [];
     }
 
     case "matching": {
@@ -169,22 +137,18 @@ function adaptActivity(
           emoji: pair.emoji ?? "🖼️",
           word: pair.word_bn,
         }))
-        .filter(
-          (pair) => pair.word.trim().length > 0,
-        );
+        .filter((pair) => pair.word.trim().length > 0);
 
-      if (!pairs.length) {
-        return [];
-      }
-
-      return [
-        {
-          id: activity.id,
-          type: "matching",
-          prompt: instruction || title,
-          pairs,
-        },
-      ];
+      return pairs.length
+        ? [
+            {
+              id: activity.id,
+              type: "matching",
+              prompt: instruction || title,
+              pairs,
+            },
+          ]
+        : [];
     }
 
     case "multiple_choice":
@@ -196,34 +160,24 @@ function adaptActivity(
     case "tap": {
       const items = activity.payload.items
         .map((item, index) => ({
-          id:
-            item.id ||
-            `${activity.id}-item-${index + 1}`,
+          id: item.id || `${activity.id}-item-${index + 1}`,
           emoji: item.emoji ?? "🖼️",
           label: item.label_bn,
-          description:
-            item.description_bn ??
-            item.label_bn,
+          description: item.description_bn ?? item.label_bn,
         }))
-        .filter(
-          (item) => item.label.trim().length > 0,
-        );
+        .filter((item) => item.label.trim().length > 0);
 
-      if (!items.length) {
-        return [];
-      }
-
-      return [
-        {
-          id: activity.id,
-          type: "tap",
-          prompt:
-            activity.payload.prompt ||
-            instruction ||
-            title,
-          items,
-        },
-      ];
+      return items.length
+        ? [
+            {
+              id: activity.id,
+              type: "tap",
+              prompt:
+                activity.payload.prompt || instruction || title,
+              items,
+            },
+          ]
+        : [];
     }
 
     case "snippet": {
@@ -231,21 +185,17 @@ function adaptActivity(
         (line) => line.trim().length > 0,
       );
 
-      if (!lines.length) {
-        return [];
-      }
-
-      return [
-        {
-          id: activity.id,
-          type: "snippet",
-          title,
-          imageEmoji:
-            activity.payload.imageEmoji ??
-            "📖",
-          lines,
-        },
-      ];
+      return lines.length
+        ? [
+            {
+              id: activity.id,
+              type: "snippet",
+              title,
+              imageEmoji: activity.payload.imageEmoji ?? "📖",
+              lines,
+            },
+          ]
+        : [];
     }
 
     case "letter":
@@ -255,14 +205,13 @@ function adaptActivity(
           type: "letter",
           letter: activity.payload.letter,
           sound:
-            activity.payload.sound ??
-            activity.payload.letter,
-          examples: (
-            activity.payload.examples ?? []
-          ).map((item) => ({
-            emoji: item.emoji ?? "🖼️",
-            word: item.word_bn,
-          })),
+            activity.payload.sound ?? activity.payload.letter,
+          examples: (activity.payload.examples ?? []).map(
+            (item) => ({
+              emoji: item.emoji ?? "🖼️",
+              word: item.word_bn,
+            }),
+          ),
         },
       ];
 
@@ -282,16 +231,11 @@ function adaptActivity(
         {
           id: activity.id,
           type: "picture_choice",
-          question:
-            activity.payload.question,
-          options:
-            activity.payload.options.map(
-              (item) => ({
-                emoji:
-                  item.emoji ?? "🖼️",
-                label: item.label_bn,
-              }),
-            ),
+          question: activity.payload.question,
+          options: activity.payload.options.map((item) => ({
+            emoji: item.emoji ?? "🖼️",
+            label: item.label_bn,
+          })),
           answer: activity.payload.answer,
         },
       ];
@@ -302,19 +246,107 @@ function adaptActivity(
           id: activity.id,
           type: "drag_game",
           prompt:
-            activity.payload.prompt ||
-            instruction ||
-            title,
-          items: activity.payload.items.map(
-            (item) => ({
-              emoji: item.emoji ?? "🖼️",
-              target: item.target,
-            }),
-          ),
+            activity.payload.prompt || instruction || title,
+          items: activity.payload.items.map((item) => ({
+            emoji: item.emoji ?? item.label_bn ?? "🖼️",
+            target: item.target,
+          })),
         },
       ];
 
+    case "puzzle":
+      return adaptPuzzle(activity.id, activity.payload, instruction || title);
+
     default:
+      return [];
+  }
+}
+
+function adaptPuzzle(
+  activityId: string,
+  payload: PuzzlePayload,
+  fallbackPrompt: string,
+): Activity[] {
+  const prompt = payload.prompt || fallbackPrompt;
+
+  switch (payload.mode) {
+    case "missing_letter": {
+      const options = payload.options ?? [];
+      const answer = options.findIndex(
+        (option) => option === payload.correct_answer,
+      );
+
+      if (options.length < 2 || answer < 0) return [];
+
+      return [
+        {
+          id: activityId,
+          type: "choice",
+          prompt: [prompt, payload.pattern]
+            .filter(Boolean)
+            .join("\n"),
+          options,
+          answer,
+          hint: payload.hint ?? "খালি জায়গার অক্ষরটি আবার দেখো।",
+        },
+      ];
+    }
+
+    case "word_order": {
+      const words = payload.words ?? [];
+      const correctOrder = payload.correct_order ?? [];
+
+      if (!words.length || correctOrder.length !== words.length) {
+        return [];
+      }
+
+      // WordBuildActivity joins tile strings directly. A trailing space on
+      // each word preserves sentence spacing while keeping every tile movable.
+      return [
+        {
+          id: activityId,
+          type: "word_build",
+          prompt,
+          letters: words.map((word) => `${word} `),
+          answer: correctOrder.map((word) => `${word} `).join(""),
+        },
+      ];
+    }
+
+    case "category_sort": {
+      const categories = new Map(
+        (payload.categories ?? []).map((category) => [
+          category.id,
+          category.label_bn,
+        ]),
+      );
+      const items = (payload.items ?? [])
+        .filter((item) => Boolean(item.target))
+        .map((item) => ({
+          emoji: [item.emoji, item.label_bn]
+            .filter(Boolean)
+            .join(" "),
+          target:
+            categories.get(item.target ?? "") ??
+            item.target ??
+            "সঠিক দল",
+        }));
+
+      return items.length
+        ? [
+            {
+              id: activityId,
+              type: "drag_game",
+              prompt,
+              items,
+            },
+          ]
+        : [];
+    }
+
+    case "image_jigsaw":
+      // Reserved by the schema for phase 2. Keeping it out of the renderer
+      // prevents a half-working jigsaw from reaching children.
       return [];
   }
 }
@@ -324,39 +356,26 @@ function adaptQuizQuestions(
   activityId: string,
 ): Activity[] {
   const linkedQuestions = questions.filter(
-    (question) =>
-      question.activity_id === activityId,
+    (question) => question.activity_id === activityId,
   );
-
   const compatibleQuestions =
     linkedQuestions.length > 0
       ? linkedQuestions
       : questions.filter(
-          (question) =>
-            question.activity_id === null,
+          (question) => question.activity_id === null,
         );
 
   return [...compatibleQuestions]
-    .sort(
-      (a, b) =>
-        a.order_index - b.order_index,
-    )
+    .sort((a, b) => a.order_index - b.order_index)
     .flatMap((question): Activity[] => {
-      const options = [
-        ...question.quiz_options,
-      ].sort(
-        (a, b) =>
-          a.option_order - b.option_order,
+      const options = [...question.quiz_options].sort(
+        (a, b) => a.option_order - b.option_order,
       );
-
       const correctAnswer = options.findIndex(
         (option) => option.is_correct,
       );
 
-      if (
-        correctAnswer < 0 ||
-        options.length < 2
-      ) {
+      if (correctAnswer < 0 || options.length < 2) {
         return [];
       }
 
@@ -367,14 +386,11 @@ function adaptQuizQuestions(
           question: question.question_bn,
           options: options.map(
             (option) =>
-              option.label_bn ??
-              option.label_en ??
-              "",
+              option.label_bn ?? option.label_en ?? "",
           ),
           answer: correctAnswer,
           hint:
-            question.explanation_bn ??
-            "আবার চেষ্টা করো।",
+            question.explanation_bn ?? "আবার চেষ্টা করো।",
         },
       ];
     });
