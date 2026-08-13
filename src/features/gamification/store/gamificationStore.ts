@@ -34,6 +34,7 @@ type GamificationStore = ProgressSnapshot & {
   replaceProgress: (progress: Partial<ProgressSnapshot>) => void;
   markVideoWatched: (chapterId: string) => void;
   unlockChapter: (chapterId: string) => void;
+  awardStars: (amount?: number) => void;
   completeChapter: (payload: CompleteChapterPayload) => boolean;
   addBadge: (badgeId: string) => void;
   setLastSyncAt: (value: string) => void;
@@ -128,6 +129,32 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
 
     set({
       unlockedChapterIds: [...state.unlockedChapterIds, chapterId],
+    });
+
+    void get().saveProgress();
+  },
+
+  awardStars: (amount = 1) => {
+    const safeAmount = Math.max(0, Math.floor(amount));
+
+    if (safeAmount === 0) {
+      return;
+    }
+
+    const state = get();
+    const newStars = state.stars + safeAmount;
+    const newWeeklyStars = state.weeklyStars + safeAmount;
+    const nextBadges = [...state.badges];
+
+    if (newStars >= 100 && !nextBadges.includes('star_collector_100')) {
+      nextBadges.push('star_collector_100');
+    }
+
+    set({
+      stars: newStars,
+      weeklyStars: newWeeklyStars,
+      level: calculateLevel(newStars),
+      badges: nextBadges,
     });
 
     void get().saveProgress();
