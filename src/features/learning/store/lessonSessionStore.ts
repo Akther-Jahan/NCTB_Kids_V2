@@ -3,6 +3,7 @@ import { create } from "zustand";
 
 import {
   createQuestionResult,
+  normalizeQuestionResult,
   type QuestionResult,
 } from "../types/questionResults";
 
@@ -24,7 +25,7 @@ export type LessonSession = {
   lessonCompletedAt?: string;
 };
 
-type SubmitQuestionAnswerInput = {
+export type SubmitQuestionAnswerInput = {
   chapterId: string;
   activityId: string;
   selectedOption: number;
@@ -32,7 +33,7 @@ type SubmitQuestionAnswerInput = {
   maxAttempts?: number;
 };
 
-type SubmitQuestionAnswerResult = {
+export type SubmitQuestionAnswerResult = {
   question: QuestionResult;
   canGoNext: boolean;
   becameCorrect: boolean;
@@ -72,6 +73,7 @@ type LessonSessionStore = {
   resetQuestionForRetry: (
     chapterId: string,
     activityId: string,
+    force?: boolean,
   ) => void;
   resetRetryQuestions: (
     chapterId: string,
@@ -111,6 +113,26 @@ function createSession(
   };
 }
 
+function normalizeQuestionResults(
+  value: unknown,
+): Record<string, QuestionResult> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(
+      value as Record<
+        string,
+        Partial<QuestionResult>
+      >,
+    ).map(([activityId, result]) => [
+      activityId,
+      normalizeQuestionResult(result),
+    ]),
+  );
+}
+
 function normalizeSession(
   chapterId: string,
   session: Partial<LessonSession> | undefined,
@@ -135,11 +157,9 @@ function normalizeSession(
       typeof session.attemptsByActivity === "object"
         ? session.attemptsByActivity
         : {},
-    questionResults:
-      session.questionResults &&
-      typeof session.questionResults === "object"
-        ? session.questionResults
-        : {},
+    questionResults: normalizeQuestionResults(
+      session.questionResults,
+    ),
   };
 }
 
@@ -323,14 +343,15 @@ export const useLessonSessionStore =
         chapterId,
         get().sessions[chapterId],
       );
-      const previous =
-        current.questionResults[activityId] ??
-        createQuestionResult();
+      const previous = normalizeQuestionResult(
+        current.questionResults[activityId],
+      );
 
       if (previous.status === "correct") {
         return;
       }
 
+      const timestamp = nowIso();
       const sessions = {
         ...get().sessions,
         [chapterId]: {
@@ -340,10 +361,10 @@ export const useLessonSessionStore =
             [activityId]: {
               ...previous,
               selectedOption,
-              updatedAt: nowIso(),
+              updatedAt: timestamp,
             },
           },
-          updatedAt: nowIso(),
+          updatedAt: timestamp,
         },
       };
 
@@ -362,9 +383,9 @@ export const useLessonSessionStore =
         chapterId,
         get().sessions[chapterId],
       );
-      const previous =
-        current.questionResults[activityId] ??
-        createQuestionResult();
+      const previous = normalizeQuestionResult(
+        current.questionResults[activityId],
+      );
 
       if (previous.status === "correct") {
         return {
@@ -393,6 +414,10 @@ export const useLessonSessionStore =
         attempts,
         attemptsInRound,
         selectedOption,
+        selectedOptionHistory: [
+          ...previous.selectedOptionHistory,
+          selectedOption,
+        ],
         updatedAt: timestamp,
       };
 
@@ -470,36 +495,43 @@ export const useLessonSessionStore =
     resetQuestionForRetry: (
       chapterId,
       activityId,
+      force = false,
     ) => {
       const current = get().sessions[chapterId];
       const previous =
         current?.questionResults[activityId];
 
-      if (!current || !previous) {
+      if (!current) {
+        return;
+      }
+
+      const normalized =
+        normalizeQuestionResult(previous);
+
+      if (
+        normalized.status === "correct" &&
+        !force
+      ) {
         return;
       }
 
       const question: QuestionResult = {
-        ...previous,
-        status:
-          previous.status === "correct"
-            ? "correct"
-            : "unanswered",
-        attemptsInRound:
-          previous.status === "correct"
-            ? previous.attemptsInRound
-            : 0,
+        ...normalized,
+        status: "unanswered",
+        attemptsInRound: 0,
         updatedAt: nowIso(),
       };
 
-      if (question.status !== "correct") {
-        delete question.selectedOption;
-      }
+      delete question.selectedOption;
 
       const sessions = {
         ...get().sessions,
         [chapterId]: {
           ...current,
+          completedActivityIds:
+            current.completedActivityIds.filter(
+              (id) => id !== activityId,
+            ),
           questionResults: {
             ...current.questionResults,
             [activityId]: question,
@@ -524,7 +556,8 @@ export const useLessonSessionStore =
       )
         .filter(
           ([, result]) =>
-            result.status !== "correct",
+            normalizeQuestionResult(result)
+              .status !== "correct",
         )
         .map(([activityId]) => activityId);
 
@@ -534,7 +567,9 @@ export const useLessonSessionStore =
 
       for (const activityId of retryIds) {
         const previous =
-          questionResults[activityId];
+          normalizeQuestionResult(
+            questionResults[activityId],
+          );
         const next: QuestionResult = {
           ...previous,
           status: "unanswered",
@@ -550,6 +585,10 @@ export const useLessonSessionStore =
         ...get().sessions,
         [chapterId]: {
           ...current,
+          completedActivityIds:
+            current.completedActivityIds.filter(
+              (id) => !retryIds.includes(id),
+            ),
           questionResults,
           updatedAt: nowIso(),
         },
