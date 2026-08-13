@@ -27,9 +27,9 @@ function speakOne(
       language: "bn-BD",
       rate: options?.rate ?? DEFAULT_RATE,
       pitch: options?.pitch ?? DEFAULT_PITCH,
-      onDone: resolve,
-      onStopped: resolve,
-      onError: resolve,
+      onDone: () => resolve(),
+      onStopped: () => resolve(),
+      onError: () => resolve(),
     });
   });
 }
