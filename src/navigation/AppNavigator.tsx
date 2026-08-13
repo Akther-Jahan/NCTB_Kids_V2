@@ -5,7 +5,7 @@ import type { RootStackParamList } from "./routes";
 import SubjectSelectionScreen from "../features/learning/screens/SubjectSelectionScreen";
 import ChapterPathScreen from "../features/learning/screens/ChapterPathScreen";
 import LessonPlayerScreenV2 from "../features/learning/screens/LessonPlayerScreenV2";
-import ProgressScreen from "../features/progress/screens/ProgressScreen";
+import ProgressScreenV2 from "../features/progress/screens/ProgressScreenV2";
 import DonationScreen from "../features/donation/screens/DonationScreen";
 import SettingsScreen from "../features/settings/screens/SettingsScreen";
 import AdultGateScreen from "../features/parent/screens/AdultGateScreen";
@@ -47,7 +47,7 @@ export default function AppNavigator() {
       />
       <Stack.Screen
         name="Progress"
-        component={ProgressScreen}
+        component={ProgressScreenV2}
       />
       <Stack.Screen
         name="Donation"
