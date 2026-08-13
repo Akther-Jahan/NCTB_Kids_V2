@@ -143,9 +143,15 @@ export const useGamificationStore = create<GamificationStore>((set, get) => ({
     const newStars = state.stars + starsEarned;
     const newWeeklyStars = state.weeklyStars + starsEarned;
 
-    const nextUnlockedChapterIds = nextChapterId
-      ? [...new Set([...state.unlockedChapterIds, nextChapterId])]
-      : state.unlockedChapterIds;
+    // A completed chapter must remain unlocked so the child can open it
+    // again for review/practice. Only the next chapter is newly unlocked.
+    const nextUnlockedChapterIds = [
+      ...new Set([
+        ...state.unlockedChapterIds,
+        chapterId,
+        ...(nextChapterId ? [nextChapterId] : []),
+      ]),
+    ];
 
     const nextBadges = [...state.badges];
 
