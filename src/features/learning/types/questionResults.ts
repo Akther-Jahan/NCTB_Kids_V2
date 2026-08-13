@@ -8,6 +8,7 @@ export type QuestionResult = {
   attempts: number;
   attemptsInRound: number;
   selectedOption?: number;
+  selectedOptionHistory: number[];
   rewardGranted: boolean;
   updatedAt: string;
 };
@@ -25,8 +26,32 @@ export function createQuestionResult(): QuestionResult {
     status: "unanswered",
     attempts: 0,
     attemptsInRound: 0,
+    selectedOptionHistory: [],
     rewardGranted: false,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+export function normalizeQuestionResult(
+  value?: Partial<QuestionResult>,
+): QuestionResult {
+  const fallback = createQuestionResult();
+
+  if (!value) {
+    return fallback;
+  }
+
+  return {
+    ...fallback,
+    ...value,
+    selectedOptionHistory: Array.isArray(
+      value.selectedOptionHistory,
+    )
+      ? value.selectedOptionHistory.filter(
+          (item): item is number =>
+            Number.isInteger(item) && item >= 0,
+        )
+      : [],
   };
 }
 
