@@ -14,7 +14,7 @@ import LoginScreen from "../features/auth/screens/LoginScreen";
 import RegisterScreen from "../features/auth/screens/RegisterScreen";
 import ForgotPasswordScreen from "../features/auth/screens/ForgotPasswordScreen";
 import AdminLoginScreen from "../features/admin/screens/AdminLoginScreen";
-import AdminDashboardScreen from "../features/admin/screens/AdminDashboardScreen";
+import LiveOverview from "../features/admin/components/LiveOverview";
 import AdminContentEditorScreen from "../features/admin/screens/AdminContentEditorScreen";
 import AdminQuizEditorScreen from "../features/admin/screens/AdminQuizEditorScreen";
 
@@ -90,7 +90,7 @@ export default function AppNavigator() {
       />
       <Stack.Screen
         name="AdminDashboard"
-        component={AdminDashboardScreen}
+        component={LiveOverview}
       />
       <Stack.Screen
         name="AdminContentEditor"
