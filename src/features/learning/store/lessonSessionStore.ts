@@ -1,8 +1,17 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 
+import {
+  createQuestionResult,
+  type QuestionResult,
+} from "../types/questionResults";
+
 const STORAGE_KEY =
+  "nctb_kids_lesson_sessions_v2";
+const LEGACY_STORAGE_KEY =
   "nctb_kids_lesson_sessions_v1";
+
+export const DEFAULT_QUIZ_MAX_ATTEMPTS = 3;
 
 export type LessonSession = {
   chapterId: string;
@@ -11,6 +20,23 @@ export type LessonSession = {
   updatedAt: string;
   completedActivityIds: string[];
   attemptsByActivity: Record<string, number>;
+  questionResults: Record<string, QuestionResult>;
+  lessonCompletedAt?: string;
+};
+
+type SubmitQuestionAnswerInput = {
+  chapterId: string;
+  activityId: string;
+  selectedOption: number;
+  correct: boolean;
+  maxAttempts?: number;
+};
+
+type SubmitQuestionAnswerResult = {
+  question: QuestionResult;
+  canGoNext: boolean;
+  becameCorrect: boolean;
+  rewardAllowed: boolean;
 };
 
 type LessonSessionStore = {
@@ -31,14 +57,48 @@ type LessonSessionStore = {
     chapterId: string,
     activityId: string,
   ) => void;
+  selectQuestionOption: (
+    chapterId: string,
+    activityId: string,
+    selectedOption: number,
+  ) => void;
+  submitQuestionAnswer: (
+    input: SubmitQuestionAnswerInput,
+  ) => SubmitQuestionAnswerResult;
+  markQuestionRewardGranted: (
+    chapterId: string,
+    activityId: string,
+  ) => void;
+  resetQuestionForRetry: (
+    chapterId: string,
+    activityId: string,
+  ) => void;
+  resetRetryQuestions: (
+    chapterId: string,
+  ) => string[];
   clearSession: (chapterId: string) => void;
   resetAllSessions: () => Promise<void>;
 };
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function normalizeMaxAttempts(value?: number) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_QUIZ_MAX_ATTEMPTS;
+  }
+
+  return Math.max(
+    1,
+    Math.min(5, Math.round(value as number)),
+  );
+}
+
 function createSession(
   chapterId: string,
 ): LessonSession {
-  const now = new Date().toISOString();
+  const now = nowIso();
 
   return {
     chapterId,
@@ -47,7 +107,53 @@ function createSession(
     updatedAt: now,
     completedActivityIds: [],
     attemptsByActivity: {},
+    questionResults: {},
   };
+}
+
+function normalizeSession(
+  chapterId: string,
+  session: Partial<LessonSession> | undefined,
+): LessonSession {
+  const fallback = createSession(chapterId);
+
+  if (!session) {
+    return fallback;
+  }
+
+  return {
+    ...fallback,
+    ...session,
+    chapterId,
+    completedActivityIds: Array.isArray(
+      session.completedActivityIds,
+    )
+      ? session.completedActivityIds
+      : [],
+    attemptsByActivity:
+      session.attemptsByActivity &&
+      typeof session.attemptsByActivity === "object"
+        ? session.attemptsByActivity
+        : {},
+    questionResults:
+      session.questionResults &&
+      typeof session.questionResults === "object"
+        ? session.questionResults
+        : {},
+  };
+}
+
+function normalizeSessions(
+  input: Record<string, Partial<LessonSession>>,
+) {
+  return Object.fromEntries(
+    Object.entries(input).map(
+      ([chapterId, session]) => [
+        chapterId,
+        normalizeSession(chapterId, session),
+      ],
+    ),
+  );
 }
 
 async function persist(
@@ -59,13 +165,25 @@ async function persist(
   );
 }
 
+async function readStoredSessions() {
+  const current =
+    await AsyncStorage.getItem(STORAGE_KEY);
+
+  if (current) {
+    return current;
+  }
+
+  return AsyncStorage.getItem(
+    LEGACY_STORAGE_KEY,
+  );
+}
+
 export const useLessonSessionStore =
   create<LessonSessionStore>((set, get) => ({
     sessions: {},
 
     loadSessions: async () => {
-      const raw =
-        await AsyncStorage.getItem(STORAGE_KEY);
+      const raw = await readStoredSessions();
 
       if (!raw) {
         return;
@@ -74,20 +192,23 @@ export const useLessonSessionStore =
       try {
         const parsed = JSON.parse(raw) as Record<
           string,
-          LessonSession
+          Partial<LessonSession>
         >;
 
-        set({
-          sessions:
-            parsed &&
-            typeof parsed === "object"
-              ? parsed
-              : {},
-        });
+        const sessions =
+          parsed && typeof parsed === "object"
+            ? normalizeSessions(parsed)
+            : {};
+
+        set({ sessions });
+        await persist(sessions);
       } catch {
-        await AsyncStorage.removeItem(
-          STORAGE_KEY,
-        );
+        await Promise.all([
+          AsyncStorage.removeItem(STORAGE_KEY),
+          AsyncStorage.removeItem(
+            LEGACY_STORAGE_KEY,
+          ),
+        ]);
         set({ sessions: {} });
       }
     },
@@ -100,8 +221,7 @@ export const useLessonSessionStore =
         return existing;
       }
 
-      const session =
-        createSession(chapterId);
+      const session = createSession(chapterId);
 
       const sessions = {
         ...get().sessions,
@@ -115,17 +235,17 @@ export const useLessonSessionStore =
     },
 
     setStep: (chapterId, step) => {
-      const current =
-        get().sessions[chapterId] ??
-        createSession(chapterId);
+      const current = normalizeSession(
+        chapterId,
+        get().sessions[chapterId],
+      );
 
       const sessions = {
         ...get().sessions,
         [chapterId]: {
           ...current,
           step: Math.max(0, step),
-          updatedAt:
-            new Date().toISOString(),
+          updatedAt: nowIso(),
         },
       };
 
@@ -137,9 +257,10 @@ export const useLessonSessionStore =
       chapterId,
       activityId,
     ) => {
-      const current =
-        get().sessions[chapterId] ??
-        createSession(chapterId);
+      const current = normalizeSession(
+        chapterId,
+        get().sessions[chapterId],
+      );
 
       if (
         current.completedActivityIds.includes(
@@ -157,8 +278,7 @@ export const useLessonSessionStore =
             ...current.completedActivityIds,
             activityId,
           ],
-          updatedAt:
-            new Date().toISOString(),
+          updatedAt: nowIso(),
         },
       };
 
@@ -170,9 +290,10 @@ export const useLessonSessionStore =
       chapterId,
       activityId,
     ) => {
-      const current =
-        get().sessions[chapterId] ??
-        createSession(chapterId);
+      const current = normalizeSession(
+        chapterId,
+        get().sessions[chapterId],
+      );
 
       const sessions = {
         ...get().sessions,
@@ -185,8 +306,7 @@ export const useLessonSessionStore =
                 activityId
               ] ?? 0) + 1,
           },
-          updatedAt:
-            new Date().toISOString(),
+          updatedAt: nowIso(),
         },
       };
 
@@ -194,12 +314,271 @@ export const useLessonSessionStore =
       void persist(sessions);
     },
 
-    clearSession: (chapterId) => {
+    selectQuestionOption: (
+      chapterId,
+      activityId,
+      selectedOption,
+    ) => {
+      const current = normalizeSession(
+        chapterId,
+        get().sessions[chapterId],
+      );
+      const previous =
+        current.questionResults[activityId] ??
+        createQuestionResult();
+
+      if (previous.status === "correct") {
+        return;
+      }
+
       const sessions = {
         ...get().sessions,
+        [chapterId]: {
+          ...current,
+          questionResults: {
+            ...current.questionResults,
+            [activityId]: {
+              ...previous,
+              selectedOption,
+              updatedAt: nowIso(),
+            },
+          },
+          updatedAt: nowIso(),
+        },
       };
 
-      delete sessions[chapterId];
+      set({ sessions });
+      void persist(sessions);
+    },
+
+    submitQuestionAnswer: ({
+      chapterId,
+      activityId,
+      selectedOption,
+      correct,
+      maxAttempts,
+    }) => {
+      const current = normalizeSession(
+        chapterId,
+        get().sessions[chapterId],
+      );
+      const previous =
+        current.questionResults[activityId] ??
+        createQuestionResult();
+
+      if (previous.status === "correct") {
+        return {
+          question: previous,
+          canGoNext: true,
+          becameCorrect: false,
+          rewardAllowed: false,
+        };
+      }
+
+      const limit =
+        normalizeMaxAttempts(maxAttempts);
+      const attempts = previous.attempts + 1;
+      const attemptsInRound =
+        previous.attemptsInRound + 1;
+      const timestamp = nowIso();
+      const status = correct
+        ? "correct"
+        : attemptsInRound >= limit
+          ? "needs_retry"
+          : "unanswered";
+
+      const question: QuestionResult = {
+        ...previous,
+        status,
+        attempts,
+        attemptsInRound,
+        selectedOption,
+        updatedAt: timestamp,
+      };
+
+      const sessions = {
+        ...get().sessions,
+        [chapterId]: {
+          ...current,
+          attemptsByActivity: {
+            ...current.attemptsByActivity,
+            [activityId]: attempts,
+          },
+          questionResults: {
+            ...current.questionResults,
+            [activityId]: question,
+          },
+          updatedAt: timestamp,
+        },
+      };
+
+      set({ sessions });
+      void persist(sessions);
+
+      const becameCorrect =
+        correct && previous.status !== "correct";
+
+      return {
+        question,
+        canGoNext:
+          status === "correct" ||
+          attemptsInRound >= limit,
+        becameCorrect,
+        rewardAllowed:
+          becameCorrect &&
+          !previous.rewardGranted,
+      };
+    },
+
+    markQuestionRewardGranted: (
+      chapterId,
+      activityId,
+    ) => {
+      const current = get().sessions[chapterId];
+      const previous =
+        current?.questionResults[activityId];
+
+      if (
+        !current ||
+        !previous ||
+        previous.rewardGranted
+      ) {
+        return;
+      }
+
+      const timestamp = nowIso();
+      const sessions = {
+        ...get().sessions,
+        [chapterId]: {
+          ...current,
+          questionResults: {
+            ...current.questionResults,
+            [activityId]: {
+              ...previous,
+              rewardGranted: true,
+              updatedAt: timestamp,
+            },
+          },
+          updatedAt: timestamp,
+        },
+      };
+
+      set({ sessions });
+      void persist(sessions);
+    },
+
+    resetQuestionForRetry: (
+      chapterId,
+      activityId,
+    ) => {
+      const current = get().sessions[chapterId];
+      const previous =
+        current?.questionResults[activityId];
+
+      if (!current || !previous) {
+        return;
+      }
+
+      const question: QuestionResult = {
+        ...previous,
+        status:
+          previous.status === "correct"
+            ? "correct"
+            : "unanswered",
+        attemptsInRound:
+          previous.status === "correct"
+            ? previous.attemptsInRound
+            : 0,
+        updatedAt: nowIso(),
+      };
+
+      if (question.status !== "correct") {
+        delete question.selectedOption;
+      }
+
+      const sessions = {
+        ...get().sessions,
+        [chapterId]: {
+          ...current,
+          questionResults: {
+            ...current.questionResults,
+            [activityId]: question,
+          },
+          updatedAt: nowIso(),
+        },
+      };
+
+      set({ sessions });
+      void persist(sessions);
+    },
+
+    resetRetryQuestions: (chapterId) => {
+      const current = get().sessions[chapterId];
+
+      if (!current) {
+        return [];
+      }
+
+      const retryIds = Object.entries(
+        current.questionResults,
+      )
+        .filter(
+          ([, result]) =>
+            result.status !== "correct",
+        )
+        .map(([activityId]) => activityId);
+
+      const questionResults = {
+        ...current.questionResults,
+      };
+
+      for (const activityId of retryIds) {
+        const previous =
+          questionResults[activityId];
+        const next: QuestionResult = {
+          ...previous,
+          status: "unanswered",
+          attemptsInRound: 0,
+          updatedAt: nowIso(),
+        };
+
+        delete next.selectedOption;
+        questionResults[activityId] = next;
+      }
+
+      const sessions = {
+        ...get().sessions,
+        [chapterId]: {
+          ...current,
+          questionResults,
+          updatedAt: nowIso(),
+        },
+      };
+
+      set({ sessions });
+      void persist(sessions);
+
+      return retryIds;
+    },
+
+    clearSession: (chapterId) => {
+      const current = get().sessions[chapterId];
+
+      if (!current) {
+        return;
+      }
+
+      const timestamp = nowIso();
+      const sessions = {
+        ...get().sessions,
+        [chapterId]: {
+          ...createSession(chapterId),
+          questionResults:
+            current.questionResults ?? {},
+          lessonCompletedAt: timestamp,
+          updatedAt: timestamp,
+        },
+      };
 
       set({ sessions });
       void persist(sessions);
@@ -207,8 +586,11 @@ export const useLessonSessionStore =
 
     resetAllSessions: async () => {
       set({ sessions: {} });
-      await AsyncStorage.removeItem(
-        STORAGE_KEY,
-      );
+      await Promise.all([
+        AsyncStorage.removeItem(STORAGE_KEY),
+        AsyncStorage.removeItem(
+          LEGACY_STORAGE_KEY,
+        ),
+      ]);
     },
   }));
