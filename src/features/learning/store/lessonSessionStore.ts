@@ -2,7 +2,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 
 import {
-  createQuestionResult,
   normalizeQuestionResult,
   type QuestionResult,
 } from "../types/questionResults";
@@ -440,8 +439,7 @@ export const useLessonSessionStore =
       set({ sessions });
       void persist(sessions);
 
-      const becameCorrect =
-        correct && previous.status !== "correct";
+      const becameCorrect = correct;
 
       return {
         question,
