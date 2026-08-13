@@ -11,6 +11,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import type { ScreenProps } from "../../../navigation/routes";
+import AdminDashboardScreen from "../screens/AdminDashboardScreen";
 import {
   adminService,
   type AdminChapter,
@@ -41,7 +42,9 @@ const pct = (value: number, total: number) =>
 
 export default function LiveOverview({
   navigation,
+  route,
 }: ScreenProps<"AdminDashboard">) {
+  const [managerVisible, setManagerVisible] = useState(false);
   const [chapters, setChapters] = useState<AdminChapter[]>([]);
   const [analytics, setAnalytics] =
     useState<AdminDashboardAnalytics>(EMPTY);
@@ -106,6 +109,27 @@ export default function LiveOverview({
     };
   }, [analytics, chapters]);
 
+  if (managerVisible) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+          <Pressable
+            onPress={() => setManagerVisible(false)}
+            style={styles.exitButton}
+          >
+            <Text style={styles.exitText}>← Live Overview</Text>
+          </Pressable>
+        </View>
+        <View style={{ flex: 1 }}>
+          <AdminDashboardScreen
+            navigation={navigation}
+            route={route}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -143,6 +167,12 @@ export default function LiveOverview({
               minute: "2-digit",
             }) ?? "—"}
           </Text>
+          <Pressable
+            onPress={() => setManagerVisible(true)}
+            style={[styles.exitButton, { alignSelf: "flex-start", marginTop: 14 }]}
+          >
+            <Text style={styles.exitText}>Open Content Manager →</Text>
+          </Pressable>
         </View>
 
         <Text style={styles.heading}>Live metrics</Text>
