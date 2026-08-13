@@ -1,4 +1,5 @@
 import React, {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -6,15 +7,20 @@ import React, {
 } from "react";
 import {
   Animated,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from "react-native";
-import * as Speech from "expo-speech";
 
+import {
+  speakLearningVoice,
+  stopLearningVoice,
+} from "../services/learningVoice";
 import MimiCharacter from "./MimiCharacter";
+import RewardToast from "./RewardToast";
 
 type Props = {
   activity: {
@@ -29,15 +35,42 @@ type Props = {
   onComplete: () => void;
 };
 
-function speakBangla(text: string) {
-  void Speech.stop();
+type SlotRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
 
-  Speech.speak(text, {
-    language: "bn-BD",
-    rate: 0.74,
-    pitch: 1.05,
-    volume: 1,
-  });
+function expectedTileOrder(
+  answer: string,
+  letters: string[],
+): string[] | null {
+  const used = new Set<number>();
+  const expected: string[] = [];
+  let remaining = answer;
+
+  for (let step = 0; step < letters.length; step += 1) {
+    const candidates = letters
+      .map((letter, index) => ({ letter, index }))
+      .filter(
+        ({ letter, index }) =>
+          !used.has(index) && remaining.startsWith(letter),
+      )
+      .sort((a, b) => b.letter.length - a.letter.length);
+
+    const candidate = candidates[0];
+
+    if (!candidate) {
+      return null;
+    }
+
+    used.add(candidate.index);
+    expected.push(candidate.letter);
+    remaining = remaining.slice(candidate.letter.length);
+  }
+
+  return remaining.length === 0 ? expected : null;
 }
 
 export default function WordBuildActivity({
@@ -47,72 +80,65 @@ export default function WordBuildActivity({
   const { width } = useWindowDimensions();
   const isSmallPhone = width < 360;
   const isTablet = width >= 600;
-
   const { data } = activity;
 
-  const entrance = useRef(
-    new Animated.Value(0),
-  ).current;
-  const answerScale = useRef(
-    new Animated.Value(1),
-  ).current;
-  const shake = useRef(
-    new Animated.Value(0),
-  ).current;
+  const tileCount = data.letters.length;
+  const emptySlots = useMemo(
+    () => Array<number | null>(tileCount).fill(null),
+    [tileCount],
+  );
+
+  const entrance = useRef(new Animated.Value(0)).current;
+  const answerScale = useRef(new Animated.Value(1)).current;
+  const shake = useRef(new Animated.Value(0)).current;
   const completedRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
+  const slotRefs = useRef<
+    Array<React.ElementRef<typeof View> | null>
+  >([]);
+  const slotRects = useRef<Array<SlotRect | null>>([]);
+
+  const [slots, setSlots] = useState<Array<number | null>>(emptySlots);
+  const [history, setHistory] = useState<Array<Array<number | null>>>([]);
+  const [selectedTile, setSelectedTile] = useState<number | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [wrong, setWrong] = useState(false);
+  const [wrongMessage, setWrongMessage] = useState("");
+  const [completed, setCompleted] = useState(false);
+  const [rewardVisible, setRewardVisible] = useState(false);
 
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
-  const [selectedIndices, setSelectedIndices] =
-    useState<number[]>([]);
-  const [wrong, setWrong] = useState(false);
-  const [completed, setCompleted] =
-    useState(false);
-
-  const selectedLetters = useMemo(
-    () =>
-      selectedIndices.map(
-        (index) => data.letters[index],
-      ),
-    [data.letters, selectedIndices],
-  );
-
-  const word = selectedLetters.join("");
-  const progress = data.letters.length
-    ? Math.round(
-        (selectedIndices.length /
-          data.letters.length) *
-          100,
-      )
-    : 100;
+  useEffect(() => {
+    setSlots(Array<number | null>(tileCount).fill(null));
+    setHistory([]);
+    setSelectedTile(null);
+    setSelectedSlot(null);
+    setWrong(false);
+    setWrongMessage("");
+    setCompleted(false);
+    completedRef.current = false;
+  }, [data.answer, data.letters, tileCount]);
 
   useEffect(() => {
-    const entranceAnimation = Animated.spring(
-      entrance,
-      {
-        toValue: 1,
-        friction: 6,
-        tension: 55,
-        useNativeDriver: true,
-      },
-    );
+    const animation = Animated.spring(entrance, {
+      toValue: 1,
+      friction: 6,
+      tension: 55,
+      useNativeDriver: true,
+    });
 
-    entranceAnimation.start();
+    animation.start();
 
     const timer = setTimeout(() => {
-      speakBangla(
-        data.prompt ||
-          "অক্ষরগুলো সাজিয়ে শব্দ তৈরি করো।",
+      void speakLearningVoice(
+        data.prompt || "অক্ষরগুলো সাজিয়ে শব্দ তৈরি করো।",
       );
     }, 350);
 
-    if (
-      data.letters.length === 0 &&
-      !completedRef.current
-    ) {
+    if (tileCount === 0 && !completedRef.current) {
       completedRef.current = true;
       setCompleted(true);
       onCompleteRef.current();
@@ -120,68 +146,202 @@ export default function WordBuildActivity({
 
     return () => {
       clearTimeout(timer);
-      entranceAnimation.stop();
-      void Speech.stop();
+      animation.stop();
+      void stopLearningVoice();
     };
-  }, [
-    data.letters.length,
-    data.prompt,
-    entrance,
-  ]);
+  }, [data.prompt, entrance, tileCount]);
 
-  const opacity = entrance.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 1],
-  });
+  const expected = useMemo(
+    () => expectedTileOrder(data.answer, data.letters),
+    [data.answer, data.letters],
+  );
 
-  const translateY = entrance.interpolate({
-    inputRange: [0, 1],
-    outputRange: [28, 0],
-  });
+  const assembledLetters = useMemo(
+    () =>
+      slots.map((tileIndex) =>
+        tileIndex === null ? "" : data.letters[tileIndex],
+      ),
+    [data.letters, slots],
+  );
+  const word = assembledLetters.join("");
+  const filledCount = slots.filter((item) => item !== null).length;
+  const progress = tileCount > 0
+    ? Math.round((filledCount / tileCount) * 100)
+    : 100;
 
-  const shakeX = shake.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: [-9, 0, 9],
-  });
+  const measureSlots = useCallback(() => {
+    slotRefs.current.forEach((node, index) => {
+      node?.measureInWindow((x, y, slotWidth, slotHeight) => {
+        slotRects.current[index] = {
+          x,
+          y,
+          width: slotWidth,
+          height: slotHeight,
+        };
+      });
+    });
+  }, []);
 
-  const characterSize = isTablet
-    ? 205
-    : isSmallPhone
-      ? 128
-      : 155;
+  useEffect(() => {
+    const frame = requestAnimationFrame(measureSlots);
+    return () => cancelAnimationFrame(frame);
+  }, [measureSlots, slots]);
+
+  const remember = useCallback(
+    (current: Array<number | null>) => {
+      setHistory((items) => [...items.slice(-11), [...current]]);
+    },
+    [],
+  );
+
+  const applySlots = useCallback(
+    (next: Array<number | null>) => {
+      remember(slots);
+      setSlots(next);
+      setWrong(false);
+      setWrongMessage("");
+      setSelectedTile(null);
+      setSelectedSlot(null);
+    },
+    [remember, slots],
+  );
+
+  const moveTileToSlot = useCallback(
+    (tileIndex: number, targetSlot: number) => {
+      if (completed || targetSlot < 0 || targetSlot >= tileCount) {
+        return;
+      }
+
+      const next = [...slots];
+      const sourceSlot = next.indexOf(tileIndex);
+      const displaced = next[targetSlot];
+
+      if (sourceSlot === targetSlot) {
+        setSelectedTile(null);
+        setSelectedSlot(null);
+        return;
+      }
+
+      if (sourceSlot >= 0) {
+        next[sourceSlot] = displaced;
+      }
+
+      next[targetSlot] = tileIndex;
+      applySlots(next);
+      void speakLearningVoice(data.letters[tileIndex]);
+    },
+    [applySlots, completed, data.letters, slots, tileCount],
+  );
+
+  const removeTile = useCallback(
+    (tileIndex: number) => {
+      if (completed) return;
+      const sourceSlot = slots.indexOf(tileIndex);
+      if (sourceSlot < 0) return;
+
+      const next = [...slots];
+      next[sourceSlot] = null;
+      applySlots(next);
+    },
+    [applySlots, completed, slots],
+  );
+
+  const dropTile = useCallback(
+    (tileIndex: number, x: number, y: number) => {
+      const target = slotRects.current.findIndex(
+        (rect) =>
+          Boolean(
+            rect &&
+              x >= rect.x &&
+              x <= rect.x + rect.width &&
+              y >= rect.y &&
+              y <= rect.y + rect.height,
+          ),
+      );
+
+      if (target >= 0) {
+        moveTileToSlot(tileIndex, target);
+      } else if (slots.includes(tileIndex)) {
+        removeTile(tileIndex);
+      }
+    },
+    [moveTileToSlot, removeTile, slots],
+  );
+
+  const tapBankTile = (tileIndex: number) => {
+    if (completed) return;
+    setSelectedTile(tileIndex);
+    setSelectedSlot(null);
+    setWrong(false);
+    void speakLearningVoice(data.letters[tileIndex]);
+  };
+
+  const tapSlot = (slotIndex: number) => {
+    if (completed) return;
+
+    const tileIndex = slots[slotIndex];
+
+    if (selectedTile !== null) {
+      moveTileToSlot(selectedTile, slotIndex);
+      return;
+    }
+
+    if (selectedSlot !== null) {
+      const sourceTile = slots[selectedSlot];
+      if (sourceTile !== null) {
+        if (selectedSlot === slotIndex) {
+          removeTile(sourceTile);
+        } else {
+          moveTileToSlot(sourceTile, slotIndex);
+        }
+      }
+      return;
+    }
+
+    if (tileIndex !== null) {
+      setSelectedSlot(slotIndex);
+      void speakLearningVoice(data.letters[tileIndex]);
+    }
+  };
+
+  const undo = () => {
+    if (completed || history.length === 0) return;
+
+    const previous = history[history.length - 1];
+    setHistory((items) => items.slice(0, -1));
+    setSlots([...previous]);
+    setSelectedTile(null);
+    setSelectedSlot(null);
+    setWrong(false);
+    setWrongMessage("");
+  };
+
+  const reset = () => {
+    if (completed || filledCount === 0) return;
+    remember(slots);
+    setSlots(Array<number | null>(tileCount).fill(null));
+    setSelectedTile(null);
+    setSelectedSlot(null);
+    setWrong(false);
+    setWrongMessage("");
+    void speakLearningVoice("আবার সাজাই। যেখান থেকে চাই, সেখান থেকেই শুরু করো।");
+  };
 
   const runWrongAnimation = () => {
     shake.setValue(0);
-
     Animated.sequence([
-      Animated.timing(shake, {
-        toValue: 1,
-        duration: 70,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shake, {
-        toValue: -1,
-        duration: 70,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shake, {
-        toValue: 1,
-        duration: 70,
-        useNativeDriver: true,
-      }),
-      Animated.timing(shake, {
-        toValue: 0,
-        duration: 70,
-        useNativeDriver: true,
-      }),
+      Animated.timing(shake, { toValue: 1, duration: 70, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: -1, duration: 70, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: 1, duration: 70, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: 0, duration: 70, useNativeDriver: true }),
     ]).start();
   };
 
   const runSuccessAnimation = () => {
     Animated.sequence([
       Animated.timing(answerScale, {
-        toValue: 1.12,
-        duration: 150,
+        toValue: 1.1,
+        duration: 140,
         useNativeDriver: true,
       }),
       Animated.spring(answerScale, {
@@ -192,940 +352,366 @@ export default function WordBuildActivity({
     ]).start();
   };
 
-  const selectLetter = (
-    letter: string,
-    index: number,
-  ) => {
-    if (
-      completed ||
-      selectedIndices.includes(index)
-    ) {
-      return;
-    }
+  const checkWord = () => {
+    if (completed || filledCount !== tileCount) return;
 
-    setWrong(false);
-    speakBangla(letter);
-
-    const nextIndices = [
-      ...selectedIndices,
-      index,
-    ];
-    const nextWord = nextIndices
-      .map(
-        (selectedIndex) =>
-          data.letters[selectedIndex],
-      )
-      .join("");
-
-    setSelectedIndices(nextIndices);
-
-    if (nextWord === data.answer) {
-      if (completedRef.current) {
-        return;
-      }
-
+    if (word === data.answer) {
       completedRef.current = true;
       setCompleted(true);
+      setWrong(false);
+      setRewardVisible(true);
       runSuccessAnimation();
-
-      setTimeout(() => {
-        speakBangla(
-          `দারুণ! তুমি ${data.answer} শব্দটি তৈরি করেছো।`,
-        );
-      }, 180);
-
+      void speakLearningVoice(
+        `${data.answer}। দারুণ! তুমি ${data.answer} শব্দটি তৈরি করেছো।`,
+      );
       onCompleteRef.current();
       return;
     }
 
-    if (
-      nextIndices.length ===
-      data.letters.length
-    ) {
-      setWrong(true);
-      runWrongAnimation();
+    let message = "শব্দটি ঠিক হয়নি। ভুল জায়গাটি বদলে আবার যাচাই করো।";
 
-      setTimeout(() => {
-        speakBangla(
-          "শব্দটি ঠিক হয়নি। আবার চেষ্টা করো।",
-        );
-      }, 150);
-    }
-  };
-
-  const removeLast = () => {
-    if (
-      selectedIndices.length === 0 ||
-      completed
-    ) {
-      return;
+    if (expected) {
+      const mismatch = assembledLetters.findIndex(
+        (letter, index) => letter !== expected[index],
+      );
+      if (mismatch >= 0) {
+        message = `${mismatch + 1} নম্বর জায়গাটি আবার দেখো। পুরো শব্দ নতুন করে শুরু করতে হবে না।`;
+      }
     }
 
-    setWrong(false);
-    setSelectedIndices((current) =>
-      current.slice(0, -1),
-    );
+    setWrong(true);
+    setWrongMessage(message);
+    runWrongAnimation();
+    void speakLearningVoice(`${word}। ${message}`);
   };
 
-  const reset = () => {
-    if (completed) {
-      return;
-    }
-
-    setWrong(false);
-    setSelectedIndices([]);
-    speakBangla(
-      "আবার শুরু করি। অক্ষরগুলো ঠিকভাবে সাজাও।",
-    );
-  };
+  const opacity = entrance.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const translateY = entrance.interpolate({
+    inputRange: [0, 1],
+    outputRange: [24, 0],
+  });
+  const shakeX = shake.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: [-9, 0, 9],
+  });
+  const characterSize = isTablet ? 195 : isSmallPhone ? 120 : 145;
 
   return (
     <Animated.View
       style={[
         styles.container,
-        {
-          opacity,
-          transform: [{ translateY }],
-        },
+        { opacity, transform: [{ translateY }] },
       ]}
     >
-      <View style={styles.missionHeader}>
-        <View style={styles.missionIcon}>
-          <Text style={styles.missionIconText}>
-            🧩
-          </Text>
-        </View>
+      <RewardToast
+        visible={rewardVisible}
+        title="দারুণ!"
+        message="শব্দটি সঠিক হয়েছে"
+        stars={1}
+        onHidden={() => setRewardVisible(false)}
+      />
 
+      <View style={styles.header}>
+        <View style={styles.headerIcon}><Text style={styles.headerIconText}>🧩</Text></View>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerEyebrow}>
-            WORD BUILDER
-          </Text>
-          <Text
-            style={[
-              styles.headerTitle,
-              isTablet &&
-                styles.headerTitleTablet,
-            ]}
-          >
-            {activity.title ?? "শব্দ বানাই"}
-          </Text>
+          <Text style={styles.eyebrow}>WORD BUILDER</Text>
+          <Text style={styles.title}>{activity.title ?? "শব্দ বানাই"}</Text>
         </View>
-
-        <View style={styles.xpBadge}>
-          <Text style={styles.xpText}>
-            +15 XP
-          </Text>
-        </View>
+        <Pressable
+          onPress={() => void speakLearningVoice(data.answer)}
+          style={styles.wordVoiceButton}
+        >
+          <Text style={styles.wordVoiceText}>🔊 শব্দ শুনি</Text>
+        </Pressable>
       </View>
 
       <View style={styles.progressTrack}>
-        <View
-          style={[
-            styles.progressFill,
-            {
-              width: `${
-                completed ? 100 : progress
-              }%`,
-            },
-          ]}
-        />
+        <View style={[styles.progressFill, { width: `${completed ? 100 : progress}%` }]} />
       </View>
 
       <View style={styles.guideCard}>
-        <View style={styles.guideOrbOne} />
-        <View style={styles.guideOrbTwo} />
-
-        <View style={styles.mimiZone}>
-          <MimiCharacter
-            emotion={
-              completed
-                ? "celebrate"
-                : wrong
-                  ? "talking"
-                  : "happy"
-            }
-            size={characterSize}
-          />
-
-          <View style={styles.guideBadge}>
-            <Text style={styles.guideDot}>
-              ●
-            </Text>
-            <Text style={styles.guideBadgeText}>
-              WORD COACH
-            </Text>
-          </View>
-        </View>
-
+        <MimiCharacter
+          emotion={completed ? "celebrate" : wrong ? "talking" : "happy"}
+          size={characterSize}
+        />
         <View style={styles.promptCard}>
-          <View style={styles.promptIcon}>
-            <Text style={styles.promptIconText}>
-              🎯
-            </Text>
-          </View>
-
-          <View style={styles.promptCopy}>
-            <Text style={styles.promptLabel}>
-              তোমার mission
-            </Text>
-            <Text
-              style={[
-                styles.promptText,
-                isTablet &&
-                  styles.promptTextTablet,
-              ]}
-            >
-              {data.prompt}
-            </Text>
-          </View>
-
+          <Text style={styles.promptLabel}>তোমার mission</Text>
+          <Text style={styles.promptText}>{data.prompt}</Text>
           <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="নির্দেশনা শুনি"
-            onPress={() =>
-              speakBangla(data.prompt)
-            }
-            style={({ pressed }) => [
-              styles.listenButton,
-              pressed && styles.pressed,
-            ]}
+            onPress={() => void speakLearningVoice(data.prompt)}
+            style={styles.listenCircle}
           >
-            <Text style={styles.listenIcon}>
-              🔊
-            </Text>
+            <Text>🔊</Text>
           </Pressable>
         </View>
       </View>
 
-      <View style={styles.answerHeader}>
+      <View style={styles.sectionHeader}>
         <View>
-          <Text style={styles.answerEyebrow}>
-            YOUR WORD
-          </Text>
-          <Text style={styles.answerTitle}>
-            তৈরি করা শব্দ
-          </Text>
+          <Text style={styles.sectionEyebrow}>YOUR WORD</Text>
+          <Text style={styles.sectionTitle}>অক্ষর বসাও বা জায়গা বদলাও</Text>
         </View>
-
-        <View style={styles.counterBadge}>
-          <Text style={styles.counterText}>
-            {selectedIndices.length}/
-            {data.letters.length}
-          </Text>
-        </View>
+        <Text style={styles.counter}>{filledCount}/{tileCount}</Text>
       </View>
 
       <Animated.View
         style={[
           styles.answerCard,
           wrong && styles.answerCardWrong,
-          completed &&
-            styles.answerCardCompleted,
-          {
-            transform: [
-              { translateX: shakeX },
-              { scale: answerScale },
-            ],
-          },
+          completed && styles.answerCardCorrect,
+          { transform: [{ translateX: shakeX }, { scale: answerScale }] },
         ]}
       >
-        <View style={styles.answerSlots}>
-          {data.letters.map((_, index) => {
-            const letter =
-              selectedLetters[index];
+        <View style={styles.slotsRow}>
+          {slots.map((tileIndex, slotIndex) => {
+            const letter = tileIndex === null ? null : data.letters[tileIndex];
+            const slotSelected = selectedSlot === slotIndex;
 
             return (
-              <View
-                key={`answer-slot-${index}`}
-                style={[
-                  styles.answerSlot,
-                  letter &&
-                    styles.answerSlotFilled,
-                  completed &&
-                    styles.answerSlotCompleted,
-                ]}
+              <Pressable
+                key={`slot-${slotIndex}`}
+                onPress={() => tapSlot(slotIndex)}
+                style={styles.slotPressable}
               >
-                <Text
+                <View
+                  ref={(node) => {
+                    slotRefs.current[slotIndex] = node;
+                  }}
+                  onLayout={() => requestAnimationFrame(measureSlots)}
                   style={[
-                    styles.answerLetter,
-                    completed &&
-                      styles.answerLetterCompleted,
+                    styles.slot,
+                    letter && styles.slotFilled,
+                    slotSelected && styles.slotSelected,
+                    completed && styles.slotCorrect,
                   ]}
                 >
-                  {letter ?? ""}
-                </Text>
-              </View>
+                  {tileIndex !== null && letter ? (
+                    <DraggableTile
+                      tileIndex={tileIndex}
+                      label={letter}
+                      compact
+                      disabled={completed}
+                      selected={slotSelected}
+                      onTap={() => tapSlot(slotIndex)}
+                      onDrop={dropTile}
+                    />
+                  ) : (
+                    <Text style={styles.slotPlaceholder}>{slotIndex + 1}</Text>
+                  )}
+                </View>
+              </Pressable>
             );
           })}
         </View>
 
-        <Text
-          style={[
-            styles.wordPreview,
-            wrong &&
-              styles.wordPreviewWrong,
-            completed &&
-              styles.wordPreviewCompleted,
-          ]}
-        >
-          {word ||
-            "অক্ষর বেছে নাও"}
+        <Text style={[styles.preview, wrong && styles.previewWrong, completed && styles.previewCorrect]}>
+          {word || "অক্ষরগুলো এখানে বসাও"}
         </Text>
 
-        {wrong ? (
-          <View style={styles.feedbackWrong}>
-            <Text
-              style={styles.feedbackWrongIcon}
-            >
-              🔄
-            </Text>
-            <Text
-              style={styles.feedbackWrongText}
-            >
-              শব্দটি ঠিক হয়নি—আবার চেষ্টা করো
-            </Text>
-          </View>
-        ) : completed ? (
-          <View
-            style={styles.feedbackSuccess}
-          >
-            <Text
-              style={
-                styles.feedbackSuccessIcon
-              }
-            >
-              🏆
-            </Text>
-            <Text
-              style={
-                styles.feedbackSuccessText
-              }
-            >
-              অসাধারণ! শব্দটি সঠিক হয়েছে
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.feedbackHint}>
-            <Text
-              style={styles.feedbackHintIcon}
-            >
-              💡
-            </Text>
-            <Text
-              style={styles.feedbackHintText}
-            >
-              নিচের অক্ষরগুলো সঠিক ক্রমে চাপ দাও
-            </Text>
-          </View>
-        )}
-      </Animated.View>
-
-      <View style={styles.letterHeader}>
-        <Text style={styles.letterHeaderText}>
-          LETTER TILES
-        </Text>
-
-        <View style={styles.utilityButtons}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={
-              selectedIndices.length === 0 ||
-              completed
-            }
-            onPress={removeLast}
-            style={({ pressed }) => [
-              styles.utilityButton,
-              (selectedIndices.length === 0 ||
-                completed) &&
-                styles.utilityButtonDisabled,
-              pressed &&
-                selectedIndices.length > 0 &&
-                !completed &&
-                styles.utilityButtonPressed,
-            ]}
-          >
-            <Text style={styles.utilityIcon}>
-              ⌫
-            </Text>
-            {!isSmallPhone ? (
-              <Text
-                style={styles.utilityText}
-              >
-                এক ধাপ পেছনে
-              </Text>
-            ) : null}
-          </Pressable>
-
-          <Pressable
-            accessibilityRole="button"
-            disabled={
-              selectedIndices.length === 0 ||
-              completed
-            }
-            onPress={reset}
-            style={({ pressed }) => [
-              styles.utilityButton,
-              (selectedIndices.length === 0 ||
-                completed) &&
-                styles.utilityButtonDisabled,
-              pressed &&
-                selectedIndices.length > 0 &&
-                !completed &&
-                styles.utilityButtonPressed,
-            ]}
-          >
-            <Text style={styles.utilityIcon}>
-              ↻
-            </Text>
-            {!isSmallPhone ? (
-              <Text
-                style={styles.utilityText}
-              >
-                আবার
-              </Text>
-            ) : null}
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={styles.lettersGrid}>
-        {data.letters.map(
-          (letter, index) => {
-            const selected =
-              selectedIndices.includes(index);
-
-            return (
-              <Pressable
-                key={`${letter}-${index}`}
-                accessibilityRole="button"
-                accessibilityLabel={`${letter} অক্ষর`}
-                disabled={
-                  selected || completed
-                }
-                onPress={() =>
-                  selectLetter(letter, index)
-                }
-                style={({ pressed }) => [
-                  styles.letterTile,
-                  selected &&
-                    styles.letterTileSelected,
-                  completed &&
-                    styles.letterTileCompleted,
-                  pressed &&
-                    !selected &&
-                    !completed &&
-                    styles.letterTilePressed,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.letterText,
-                    selected &&
-                      styles.letterTextSelected,
-                  ]}
-                >
-                  {selected ? "✓" : letter}
-                </Text>
-
-                <Text style={styles.tileNumber}>
-                  {index + 1}
-                </Text>
-              </Pressable>
-            );
-          },
-        )}
-      </View>
-
-      {completed ? (
-        <View style={styles.rewardCard}>
-          <View style={styles.rewardIconCircle}>
-            <Text style={styles.rewardIcon}>
-              ⭐
-            </Text>
-          </View>
-
-          <View style={styles.rewardCopy}>
-            <Text style={styles.rewardLabel}>
-              MISSION CLEARED
-            </Text>
-            <Text style={styles.rewardText}>
-              {data.answer} শব্দটি তৈরি হয়েছে
-            </Text>
-          </View>
-
-          <Text style={styles.rewardXp}>
-            +15 XP
+        <View style={[styles.feedback, wrong && styles.feedbackWrong, completed && styles.feedbackCorrect]}>
+          <Text style={styles.feedbackIcon}>{completed ? "🏆" : wrong ? "💡" : "↕️"}</Text>
+          <Text style={styles.feedbackText}>
+            {completed
+              ? "অসাধারণ! শব্দটি সঠিক হয়েছে।"
+              : wrong
+                ? wrongMessage
+                : "Drag করে slot-এ রাখো। চাইলে tile চাপ দিয়ে তারপর slot চাপতে পারো।"}
           </Text>
         </View>
-      ) : null}
+      </Animated.View>
+
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.sectionEyebrow}>LETTER TILES</Text>
+          <Text style={styles.sectionTitle}>যে অক্ষর লাগবে সেটি নাও</Text>
+        </View>
+      </View>
+
+      <View style={styles.bank}>
+        {data.letters.map((letter, tileIndex) => {
+          const placed = slots.includes(tileIndex);
+          if (placed) return null;
+
+          return (
+            <DraggableTile
+              key={`${letter}-${tileIndex}`}
+              tileIndex={tileIndex}
+              label={letter}
+              disabled={completed}
+              selected={selectedTile === tileIndex}
+              onTap={() => tapBankTile(tileIndex)}
+              onDrop={dropTile}
+            />
+          );
+        })}
+        {filledCount === tileCount ? (
+          <Text style={styles.bankEmpty}>সব অক্ষর slot-এ আছে ✓</Text>
+        ) : null}
+      </View>
+
+      <View style={styles.controls}>
+        <Pressable
+          disabled={history.length === 0 || completed}
+          onPress={undo}
+          style={[styles.controlButton, (history.length === 0 || completed) && styles.controlDisabled]}
+        >
+          <Text style={styles.controlText}>↶ Undo</Text>
+        </Pressable>
+        <Pressable
+          disabled={filledCount === 0 || completed}
+          onPress={reset}
+          style={[styles.controlButton, (filledCount === 0 || completed) && styles.controlDisabled]}
+        >
+          <Text style={styles.controlText}>↻ সব আবার</Text>
+        </Pressable>
+      </View>
+
+      <Pressable
+        disabled={filledCount !== tileCount || completed}
+        onPress={checkWord}
+        style={[
+          styles.checkButton,
+          (filledCount !== tileCount || completed) && styles.checkButtonDisabled,
+          completed && styles.checkButtonDone,
+        ]}
+      >
+        <Text style={styles.checkButtonText}>
+          {completed ? "✓ সঠিক হয়েছে" : "✓ যাচাই করি"}
+        </Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function DraggableTile({
+  tileIndex,
+  label,
+  selected,
+  disabled,
+  compact = false,
+  onTap,
+  onDrop,
+}: {
+  tileIndex: number;
+  label: string;
+  selected: boolean;
+  disabled: boolean;
+  compact?: boolean;
+  onTap: () => void;
+  onDrop: (tileIndex: number, x: number, y: number) => void;
+}) {
+  const translate = useRef(new Animated.ValueXY()).current;
+
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => !disabled,
+        onMoveShouldSetPanResponder: (_, gesture) =>
+          !disabled && Math.abs(gesture.dx) + Math.abs(gesture.dy) > 5,
+        onPanResponderMove: (_, gesture) => {
+          translate.setValue({ x: gesture.dx, y: gesture.dy });
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const moved = Math.abs(gesture.dx) + Math.abs(gesture.dy) > 8;
+
+          if (moved) {
+            onDrop(tileIndex, gesture.moveX, gesture.moveY);
+          } else {
+            onTap();
+          }
+
+          Animated.spring(translate, {
+            toValue: { x: 0, y: 0 },
+            friction: 7,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(translate, {
+            toValue: { x: 0, y: 0 },
+            friction: 7,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [disabled, onDrop, onTap, tileIndex, translate],
+  );
+
+  return (
+    <Animated.View
+      {...responder.panHandlers}
+      accessibilityRole="button"
+      accessibilityLabel={`${label} অক্ষর`}
+      style={[
+        compact ? styles.slotTile : styles.bankTile,
+        selected && styles.tileSelected,
+        disabled && styles.tileDisabled,
+        { transform: translate.getTranslateTransform() },
+      ]}
+    >
+      <Text style={[styles.tileText, compact && styles.slotTileText]}>{label}</Text>
+      {!compact ? <Text style={styles.dragHint}>↕</Text> : null}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    width: "100%",
-    alignItems: "center",
-  },
-  missionHeader: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  missionIcon: {
-    width: 46,
-    height: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: "#7653BD",
-  },
-  missionIconText: {
-    fontSize: 22,
-  },
-  headerCopy: {
-    flex: 1,
-    marginLeft: 11,
-  },
-  headerEyebrow: {
-    fontSize: 8,
-    letterSpacing: 1.25,
-    fontWeight: "900",
-    color: "#958A9A",
-  },
-  headerTitle: {
-    marginTop: 3,
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#2B252F",
-  },
-  headerTitleTablet: {
-    fontSize: 22,
-  },
-  xpBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 14,
-    backgroundColor: "#FFE6A1",
-  },
-  xpText: {
-    fontSize: 10,
-    fontWeight: "900",
-    color: "#805900",
-  },
-  progressTrack: {
-    width: "100%",
-    height: 8,
-    overflow: "hidden",
-    marginTop: 12,
-    borderRadius: 4,
-    backgroundColor: "#E7E1EA",
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: 4,
-    backgroundColor: "#7653BD",
-  },
-  guideCard: {
-    position: "relative",
-    width: "100%",
-    alignItems: "center",
-    overflow: "hidden",
-    marginTop: 13,
-    paddingTop: 7,
-    paddingBottom: 16,
-    borderRadius: 29,
-    backgroundColor: "#E5DBFA",
-  },
-  guideOrbOne: {
-    position: "absolute",
-    top: -40,
-    right: -35,
-    width: 145,
-    height: 145,
-    borderRadius: 73,
-    backgroundColor:
-      "rgba(255,255,255,0.34)",
-  },
-  guideOrbTwo: {
-    position: "absolute",
-    left: -55,
-    bottom: -72,
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor:
-      "rgba(255,255,255,0.23)",
-  },
-  mimiZone: {
-    alignItems: "center",
-  },
-  guideBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: -13,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 13,
-    backgroundColor:
-      "rgba(35,29,39,0.84)",
-  },
-  guideDot: {
-    marginRight: 5,
-    fontSize: 8,
-    color: "#6FE16A",
-  },
-  guideBadgeText: {
-    fontSize: 8,
-    letterSpacing: 0.9,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
-  promptCard: {
-    width: "92%",
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 11,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E2DCE6",
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-  },
-  promptIcon: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#FFF0C5",
-  },
-  promptIconText: {
-    fontSize: 19,
-  },
-  promptCopy: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  promptLabel: {
-    fontSize: 9,
-    fontWeight: "900",
-    color: "#968C9B",
-  },
-  promptText: {
-    marginTop: 3,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "900",
-    color: "#2C2630",
-  },
-  promptTextTablet: {
-    fontSize: 18,
-    lineHeight: 25,
-  },
-  listenButton: {
-    width: 38,
-    height: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 19,
-    backgroundColor: "#E6F4FF",
-  },
-  listenIcon: {
-    fontSize: 16,
-  },
-  answerHeader: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 16,
-  },
-  answerEyebrow: {
-    fontSize: 8,
-    letterSpacing: 1.15,
-    fontWeight: "900",
-    color: "#978B9D",
-  },
-  answerTitle: {
-    marginTop: 3,
-    fontSize: 17,
-    fontWeight: "900",
-    color: "#2C2630",
-  },
-  counterBadge: {
-    minWidth: 50,
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 15,
-    backgroundColor: "#EEE8F8",
-  },
-  counterText: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: "#7653BD",
-  },
-  answerCard: {
-    width: "100%",
-    alignItems: "center",
-    marginTop: 11,
-    padding: 16,
-    borderWidth: 2,
-    borderColor: "#E4DDE7",
-    borderRadius: 25,
-    backgroundColor: "#FFFFFF",
-  },
-  answerCardWrong: {
-    borderColor: "#E78C8C",
-    backgroundColor: "#FFF2F2",
-  },
-  answerCardCompleted: {
-    borderColor: "#65BD7A",
-    backgroundColor: "#ECF9EF",
-  },
-  answerSlots: {
-    width: "100%",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 8,
-  },
-  answerSlot: {
-    minWidth: 48,
-    height: 54,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderStyle: "dashed",
-    borderColor: "#D6CDD9",
-    borderRadius: 16,
-    backgroundColor: "#F8F5F9",
-  },
-  answerSlotFilled: {
-    borderStyle: "solid",
-    borderColor: "#7653BD",
-    backgroundColor: "#EEE8FA",
-  },
-  answerSlotCompleted: {
-    borderColor: "#65BD7A",
-    backgroundColor: "#D9F3DF",
-  },
-  answerLetter: {
-    fontSize: 26,
-    fontWeight: "900",
-    color: "#7653BD",
-  },
-  answerLetterCompleted: {
-    color: "#2E6A3D",
-  },
-  wordPreview: {
-    marginTop: 13,
-    fontSize: 25,
-    fontWeight: "900",
-    color: "#403847",
-  },
-  wordPreviewWrong: {
-    color: "#A64D4D",
-  },
-  wordPreviewCompleted: {
-    color: "#2E6A3D",
-  },
-  feedbackHint: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 15,
-    backgroundColor: "#FFF6D9",
-  },
-  feedbackHintIcon: {
-    marginRight: 6,
-    fontSize: 15,
-  },
-  feedbackHintText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#675A35",
-  },
-  feedbackWrong: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 15,
-    backgroundColor: "#F9DCDC",
-  },
-  feedbackWrongIcon: {
-    marginRight: 6,
-    fontSize: 15,
-  },
-  feedbackWrongText: {
-    fontSize: 9,
-    fontWeight: "900",
-    color: "#8A3E3E",
-  },
-  feedbackSuccess: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 15,
-    backgroundColor: "#CFEFD7",
-  },
-  feedbackSuccessIcon: {
-    marginRight: 6,
-    fontSize: 15,
-  },
-  feedbackSuccessText: {
-    fontSize: 9,
-    fontWeight: "900",
-    color: "#326641",
-  },
-  letterHeader: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 16,
-  },
-  letterHeaderText: {
-    fontSize: 8,
-    letterSpacing: 1.15,
-    fontWeight: "900",
-    color: "#978B9D",
-  },
-  utilityButtons: {
-    flexDirection: "row",
-    gap: 7,
-  },
-  utilityButton: {
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    borderRadius: 17,
-    backgroundColor: "#EEE8F8",
-  },
-  utilityButtonDisabled: {
-    opacity: 0.42,
-  },
-  utilityButtonPressed: {
-    transform: [{ scale: 0.96 }],
-  },
-  utilityIcon: {
-    fontSize: 14,
-    fontWeight: "900",
-    color: "#7653BD",
-  },
-  utilityText: {
-    marginLeft: 5,
-    fontSize: 8,
-    fontWeight: "900",
-    color: "#7653BD",
-  },
-  lettersGrid: {
-    width: "100%",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 10,
-    marginTop: 11,
-  },
-  letterTile: {
-    position: "relative",
-    minWidth: 70,
-    height: 76,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#D9CEE8",
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#766D7B",
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
-    shadowOpacity: 0.11,
-    shadowRadius: 7,
-    elevation: 4,
-  },
-  letterTileSelected: {
-    borderColor: "#BDB4C2",
-    backgroundColor: "#EFEAEF",
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  letterTileCompleted: {
-    borderColor: "#C9E8D0",
-  },
-  letterTilePressed: {
-    transform: [{ translateY: 3 }],
-  },
-  letterText: {
-    fontSize: 31,
-    fontWeight: "900",
-    color: "#7653BD",
-  },
-  letterTextSelected: {
-    fontSize: 22,
-    color: "#8E8493",
-  },
-  tileNumber: {
-    position: "absolute",
-    top: 6,
-    right: 8,
-    fontSize: 8,
-    fontWeight: "900",
-    color: "#B0A6B4",
-  },
-  rewardCard: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 15,
-    padding: 13,
-    borderRadius: 21,
-    backgroundColor: "#E6F7EA",
-  },
-  rewardIconCircle: {
-    width: 43,
-    height: 43,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-  },
-  rewardIcon: {
-    fontSize: 21,
-  },
-  rewardCopy: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  rewardLabel: {
-    fontSize: 8,
-    letterSpacing: 1,
-    fontWeight: "900",
-    color: "#50815D",
-  },
-  rewardText: {
-    marginTop: 3,
-    fontSize: 12,
-    fontWeight: "900",
-    color: "#315E3C",
-  },
-  rewardXp: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: "#2D6A3C",
-  },
-  pressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.96 }],
-  },
+  container: { position: "relative", width: "100%", alignItems: "center" },
+  header: { width: "100%", flexDirection: "row", alignItems: "center" },
+  headerIcon: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#7653BD" },
+  headerIconText: { fontSize: 22 },
+  headerCopy: { flex: 1, marginLeft: 11 },
+  eyebrow: { fontSize: 8, letterSpacing: 1.2, fontWeight: "900", color: "#958A9A" },
+  title: { marginTop: 3, fontSize: 18, fontWeight: "900", color: "#2B252F" },
+  wordVoiceButton: { minHeight: 38, paddingHorizontal: 10, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF5FF" },
+  wordVoiceText: { fontSize: 9, fontWeight: "900", color: "#287DA4" },
+  progressTrack: { width: "100%", height: 8, overflow: "hidden", marginTop: 12, borderRadius: 4, backgroundColor: "#E7E1EA" },
+  progressFill: { height: "100%", borderRadius: 4, backgroundColor: "#7653BD" },
+  guideCard: { width: "100%", alignItems: "center", marginTop: 13, paddingTop: 6, paddingBottom: 14, borderRadius: 26, backgroundColor: "#E8DFFA" },
+  promptCard: { width: "92%", minHeight: 70, marginTop: -10, padding: 13, paddingRight: 52, borderRadius: 20, backgroundColor: "#FFFFFF" },
+  promptLabel: { fontSize: 9, fontWeight: "900", color: "#8B8290" },
+  promptText: { marginTop: 4, fontSize: 16, lineHeight: 23, fontWeight: "900", color: "#302A34" },
+  listenCircle: { position: "absolute", right: 10, top: 16, width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF5FF" },
+  sectionHeader: { width: "100%", marginTop: 17, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sectionEyebrow: { fontSize: 8, letterSpacing: 1.1, fontWeight: "900", color: "#9A919E" },
+  sectionTitle: { marginTop: 2, fontSize: 14, fontWeight: "900", color: "#302A34" },
+  counter: { minWidth: 48, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 14, textAlign: "center", fontSize: 11, fontWeight: "900", color: "#7653BD", backgroundColor: "#EEE6FF" },
+  answerCard: { width: "100%", marginTop: 9, padding: 13, borderWidth: 2, borderColor: "#E3DEE6", borderRadius: 22, backgroundColor: "#FBFAFC" },
+  answerCardWrong: { borderColor: "#E3A34D", backgroundColor: "#FFF8EC" },
+  answerCardCorrect: { borderColor: "#6EBE62", backgroundColor: "#F3FFF0" },
+  slotsRow: { width: "100%", flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 },
+  slotPressable: { borderRadius: 16 },
+  slot: { width: 58, height: 62, borderWidth: 2, borderStyle: "dashed", borderColor: "#C9C1CE", borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
+  slotFilled: { borderStyle: "solid", borderColor: "#9B83CF", backgroundColor: "#F5F0FF" },
+  slotSelected: { borderColor: "#7653BD", borderWidth: 3 },
+  slotCorrect: { borderColor: "#6EBE62", backgroundColor: "#EAFFE6" },
+  slotPlaceholder: { fontSize: 11, fontWeight: "800", color: "#C2BAC6" },
+  preview: { marginTop: 12, textAlign: "center", fontSize: 24, fontWeight: "900", color: "#4B414F" },
+  previewWrong: { color: "#A25D17" },
+  previewCorrect: { color: "#317A2A" },
+  feedback: { minHeight: 44, marginTop: 10, paddingHorizontal: 11, borderRadius: 15, flexDirection: "row", alignItems: "center", backgroundColor: "#F0EDF2" },
+  feedbackWrong: { backgroundColor: "#FFF0D8" },
+  feedbackCorrect: { backgroundColor: "#E6F9E1" },
+  feedbackIcon: { fontSize: 17 },
+  feedbackText: { flex: 1, marginLeft: 8, fontSize: 10, lineHeight: 15, fontWeight: "800", color: "#625866" },
+  bank: { width: "100%", minHeight: 76, marginTop: 9, padding: 10, borderRadius: 20, flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 9, backgroundColor: "#F4F1F6" },
+  bankTile: { minWidth: 58, height: 58, paddingHorizontal: 12, borderWidth: 2, borderColor: "#D9D2DE", borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", zIndex: 20 },
+  slotTile: { width: 52, height: 56, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#F5F0FF", zIndex: 30 },
+  tileSelected: { borderColor: "#7653BD", backgroundColor: "#EEE6FF" },
+  tileDisabled: { opacity: 0.76 },
+  tileText: { fontSize: 23, fontWeight: "900", color: "#342D38" },
+  slotTileText: { fontSize: 22 },
+  dragHint: { position: "absolute", right: 4, top: 3, fontSize: 8, color: "#9B91A0" },
+  bankEmpty: { fontSize: 11, fontWeight: "800", color: "#6E8768" },
+  controls: { width: "100%", flexDirection: "row", gap: 9, marginTop: 12 },
+  controlButton: { flex: 1, minHeight: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#EEEAF1" },
+  controlDisabled: { opacity: 0.42 },
+  controlText: { fontSize: 11, fontWeight: "900", color: "#504755" },
+  checkButton: { width: "100%", minHeight: 52, marginTop: 11, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: "#7653BD" },
+  checkButtonDisabled: { backgroundColor: "#C9C3CE" },
+  checkButtonDone: { backgroundColor: "#62AD58" },
+  checkButtonText: { fontSize: 14, fontWeight: "900", color: "#FFFFFF" },
 });
