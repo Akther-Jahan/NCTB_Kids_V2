@@ -1,5 +1,6 @@
 import { supabase } from "../../../config/supabase";
 import { useLessonSessionStore } from "../store/lessonSessionStore";
+import { normalizeQuestionResult } from "../types/questionResults";
 
 type QuizQuestionRow = {
   id: string;
@@ -9,12 +10,10 @@ type QuizOptionRow = {
   id: string;
   question_id: string;
   option_order: number;
-  is_correct: boolean;
 };
 
 type ExistingAttemptRow = {
   question_id: string;
-  is_correct: boolean;
 };
 
 function throwSupabaseError(
@@ -76,7 +75,7 @@ async function syncQuizAttempts(
       supabase
         .from("quiz_options")
         .select(
-          "id, question_id, option_order, is_correct",
+          "id, question_id, option_order",
         )
         .in("question_id", questionIds)
         .order("option_order", {
@@ -85,7 +84,7 @@ async function syncQuizAttempts(
 
       supabase
         .from("activity_attempts")
-        .select("question_id, is_correct")
+        .select("question_id")
         .eq("student_id", studentId)
         .in("question_id", questionIds),
     ]);
@@ -99,10 +98,10 @@ async function syncQuizAttempts(
   const existingAttempts =
     (attemptResult.data ?? []) as unknown as ExistingAttemptRow[];
 
-  const attemptsByActivity =
+  const questionResults =
     useLessonSessionStore.getState().sessions[
       chapterId
-    ]?.attemptsByActivity ?? {};
+    ]?.questionResults ?? {};
 
   for (const question of questions) {
     const questionOptions = options
@@ -115,71 +114,64 @@ async function syncQuizAttempts(
           a.option_order - b.option_order,
       );
 
-    const correctOption =
-      questionOptions.find(
-        (option) => option.is_correct,
-      );
-
-    const wrongOption =
-      questionOptions.find(
-        (option) => !option.is_correct,
-      );
-
-    if (!correctOption) {
+    if (questionOptions.length < 2) {
       throw new Error(
-        "Published quiz question-এর correct option পাওয়া যায়নি।",
+        "Published quiz question-এর options পাওয়া যায়নি।",
       );
     }
 
-    const savedAttempts =
-      existingAttempts.filter(
-        (attempt) =>
-          attempt.question_id === question.id,
-      );
+    const localResult = normalizeQuestionResult(
+      questionResults[question.id],
+    );
+    const localHistory =
+      localResult.selectedOptionHistory;
 
-    if (
-      savedAttempts.some(
-        (attempt) => attempt.is_correct,
-      )
-    ) {
+    if (localHistory.length === 0) {
       continue;
     }
 
-    const localAttemptCount = Math.max(
-      1,
-      attemptsByActivity[question.id] ?? 1,
-    );
+    const savedAttemptCount =
+      existingAttempts.filter(
+        (attempt) =>
+          attempt.question_id === question.id,
+      ).length;
 
-    const missingAttemptCount = Math.max(
-      1,
-      localAttemptCount - savedAttempts.length,
-    );
+    // Only send attempts that the server has not stored yet.
+    // Crucially, we never invent a correct answer here. The server receives
+    // the exact option order the child actually submitted on-device.
+    const missingSelections =
+      localHistory.slice(savedAttemptCount);
 
-    const wrongAttemptsToSend = wrongOption
-      ? Math.max(0, missingAttemptCount - 1)
-      : 0;
+    for (const selectedOptionIndex of missingSelections) {
+      const selectedOption =
+        questionOptions[selectedOptionIndex];
 
-    for (
-      let index = 0;
-      index < wrongAttemptsToSend;
-      index += 1
-    ) {
+      if (!selectedOption) {
+        throw new Error(
+          "Quiz option sync করা যায়নি: saved option index আর published options মিলছে না।",
+        );
+      }
+
       await submitQuizAnswer(
         studentId,
         question.id,
-        wrongOption!.id,
+        selectedOption.id,
       );
     }
-
-    await submitQuizAnswer(
-      studentId,
-      question.id,
-      correctOption.id,
-    );
   }
 }
 
 export const progressService = {
+  async syncQuizAttempts(
+    studentId: string,
+    chapterId: string,
+  ) {
+    await syncQuizAttempts(
+      studentId,
+      chapterId,
+    );
+  },
+
   async completeChapter(
     studentId: string,
     chapterId: string,
