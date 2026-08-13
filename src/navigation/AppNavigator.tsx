@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "./routes";
 import SubjectSelectionScreen from "../features/learning/screens/SubjectSelectionScreen";
 import ChapterPathScreen from "../features/learning/screens/ChapterPathScreen";
-import LessonPlayerScreen from "../features/learning/screens/LessonPlayerScreen";
+import LessonPlayerScreenV2 from "../features/learning/screens/LessonPlayerScreenV2";
 import ProgressScreen from "../features/progress/screens/ProgressScreen";
 import DonationScreen from "../features/donation/screens/DonationScreen";
 import SettingsScreen from "../features/settings/screens/SettingsScreen";
@@ -43,7 +43,7 @@ export default function AppNavigator() {
       />
       <Stack.Screen
         name="Lesson"
-        component={LessonPlayerScreen}
+        component={LessonPlayerScreenV2}
       />
       <Stack.Screen
         name="Progress"
