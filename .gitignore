@@ -13,3 +13,22 @@ dist/
 !.env.example
 
 *.bak
+# ---- Repo cleanup / generated files ----
+*.bak
+*.tmp
+*.temp
+*.orig
+*.rej
+Thumbs.db
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules/
+**/dist/
+**/.expo/
+.vercel/
+**/.vercel/
+coverage/
+**/coverage/
