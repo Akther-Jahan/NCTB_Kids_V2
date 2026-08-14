@@ -197,14 +197,20 @@ export const adminService = {
   },
 
   async saveActivity(input) {
+    const primaryTitle = input.titleBn?.trim() || null;
+    const primaryInstruction = input.instructionBn?.trim() || null;
+    const isEnglish = input.subjectId === "english";
+
     const payload = {
       chapter_id: input.chapterId,
       order_index: Number(input.orderIndex),
       activity_type: input.activityType,
-      title_bn: input.titleBn?.trim() || null,
-      title_en: null,
-      instruction_bn: input.instructionBn?.trim() || null,
-      instruction_en: null,
+      // Keep the existing primary fields populated for current mobile compatibility.
+      // English chapters also mirror the same content into the English columns.
+      title_bn: primaryTitle,
+      title_en: isEnglish ? primaryTitle : null,
+      instruction_bn: primaryInstruction,
+      instruction_en: isEnglish ? primaryInstruction : null,
       payload: input.payload,
       status: input.status,
     };
