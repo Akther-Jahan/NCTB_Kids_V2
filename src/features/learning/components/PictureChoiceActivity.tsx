@@ -5,6 +5,7 @@ import React, {
 } from "react";
 import {
   Animated,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -14,10 +15,15 @@ import {
 import * as Speech from "expo-speech";
 
 import MimiCharacter from "./MimiCharacter";
+import {
+  clampMaxAttempts,
+  type ActivityAttemptResult,
+} from "../types/attemptPolicy";
 
 type PictureOption = {
   emoji: string;
   label: string;
+  imageUrl?: string;
 };
 
 type Props = {
@@ -30,7 +36,10 @@ type Props = {
       answer: number;
     };
   };
+  attempts?: number;
+  maxAttempts?: number;
   onComplete: () => void;
+  onAttempt?: (correct: boolean) => ActivityAttemptResult;
 };
 
 function speakBangla(text: string) {
@@ -46,7 +55,10 @@ function speakBangla(text: string) {
 
 export default function PictureChoiceActivity({
   activity,
+  attempts = 0,
+  maxAttempts,
   onComplete,
+  onAttempt,
 }: Props) {
   const { width } = useWindowDimensions();
 
@@ -76,8 +88,11 @@ export default function PictureChoiceActivity({
   const [wrongOptions, setWrongOptions] =
     useState<number[]>([]);
 
-  const [attempts, setAttempts] =
-    useState(0);
+  const [localAttempts, setLocalAttempts] =
+    useState(attempts);
+  const [continueUnlocked, setContinueUnlocked] =
+    useState(false);
+  const limit = clampMaxAttempts(maxAttempts);
 
   const [completed, setCompleted] =
     useState(false);
@@ -85,6 +100,11 @@ export default function PictureChoiceActivity({
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
+
+  useEffect(() => {
+    setLocalAttempts(attempts);
+    setContinueUnlocked(attempts >= limit);
+  }, [attempts, limit]);
 
   useEffect(() => {
     const entranceAnimation =
@@ -194,9 +214,14 @@ export default function PictureChoiceActivity({
     }
 
     setSelected(index);
-    setAttempts((current) => current + 1);
+    const isCorrect = index === data.answer;
+    const result = onAttempt?.(isCorrect);
+    const nextAttempts = result?.attemptsInRound ?? localAttempts + 1;
+    const unlocked = result?.canGoNext ?? (isCorrect || nextAttempts >= limit);
+    setLocalAttempts(nextAttempts);
+    setContinueUnlocked(unlocked && !isCorrect);
 
-    if (index === data.answer) {
+    if (isCorrect) {
       if (completedRef.current) {
         return;
       }
@@ -223,7 +248,9 @@ export default function PictureChoiceActivity({
     runWrongAnimation();
 
     speakBangla(
-      "এই ছবিটি সঠিক নয়। আবার চেষ্টা করো।",
+      unlocked
+        ? "এই ছবিটি সঠিক নয়। পরের ধাপ খুলে গেছে। চাইলে আবার চেষ্টা করো।"
+        : "এই ছবিটি সঠিক নয়। আবার চেষ্টা করো।",
     );
   };
 
@@ -266,7 +293,7 @@ export default function PictureChoiceActivity({
           </Text>
 
           <Text style={styles.tryValue}>
-            {attempts + 1}
+            {Math.min(localAttempts + 1, limit)}/{limit}
           </Text>
         </View>
       </View>
@@ -285,6 +312,12 @@ export default function PictureChoiceActivity({
           ]}
         />
       </View>
+
+      {continueUnlocked && !completed ? (
+        <View style={styles.unlockedBanner}>
+          <Text style={styles.unlockedText}>✓ Next is unlocked. You can keep practicing.</Text>
+        </View>
+      ) : null}
 
       <View style={styles.stage}>
         <View style={styles.orbOne} />
@@ -451,15 +484,23 @@ export default function PictureChoiceActivity({
                       styles.emojiCircleCorrect,
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.optionEmoji,
-                      isTablet &&
-                        styles.optionEmojiTablet,
-                    ]}
-                  >
-                    {option.emoji || "⭐"}
-                  </Text>
+                  {option.imageUrl ? (
+                    <Image
+                      source={{ uri: option.imageUrl }}
+                      style={styles.optionImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.optionEmoji,
+                        isTablet &&
+                          styles.optionEmojiTablet,
+                      ]}
+                    >
+                      {option.emoji || "⭐"}
+                    </Text>
+                  )}
                 </View>
 
                 <Text
@@ -647,6 +688,8 @@ const styles = StyleSheet.create({
     color: "#7653BD",
   },
 
+  unlockedBanner: { width: "100%", marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 14, backgroundColor: "#EAF5FF" },
+  unlockedText: { fontSize: 12, fontWeight: "800", textAlign: "center", color: "#287DA4" },
   progressTrack: {
     width: "100%",
     height: 8,
@@ -891,6 +934,8 @@ const styles = StyleSheet.create({
   optionEmoji: {
     fontSize: 43,
   },
+
+  optionImage: { width: 68, height: 68 },
 
   optionEmojiTablet: {
     fontSize: 54,

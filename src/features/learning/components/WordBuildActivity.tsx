@@ -21,6 +21,10 @@ import {
 } from "../services/learningVoice";
 import MimiCharacter from "./MimiCharacter";
 import RewardToast from "./RewardToast";
+import {
+  clampMaxAttempts,
+  type ActivityAttemptResult,
+} from "../types/attemptPolicy";
 
 type Props = {
   activity: {
@@ -32,7 +36,10 @@ type Props = {
       answer: string;
     };
   };
+  attempts?: number;
+  maxAttempts?: number;
   onComplete: () => void;
+  onAttempt?: (correct: boolean) => ActivityAttemptResult;
 };
 
 type SlotRect = {
@@ -75,7 +82,10 @@ function expectedTileOrder(
 
 export default function WordBuildActivity({
   activity,
+  attempts = 0,
+  maxAttempts,
   onComplete,
+  onAttempt,
 }: Props) {
   const { width } = useWindowDimensions();
   const isSmallPhone = width < 360;
@@ -106,10 +116,18 @@ export default function WordBuildActivity({
   const [wrongMessage, setWrongMessage] = useState("");
   const [completed, setCompleted] = useState(false);
   const [rewardVisible, setRewardVisible] = useState(false);
+  const [localAttempts, setLocalAttempts] = useState(attempts);
+  const [continueUnlocked, setContinueUnlocked] = useState(false);
+  const limit = clampMaxAttempts(maxAttempts);
 
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
+
+  useEffect(() => {
+    setLocalAttempts(attempts);
+    setContinueUnlocked(attempts >= limit);
+  }, [attempts, limit]);
 
   useEffect(() => {
     setSlots(Array<number | null>(tileCount).fill(null));
@@ -352,10 +370,20 @@ export default function WordBuildActivity({
     ]).start();
   };
 
+  const registerAttempt = (correct: boolean) => {
+    const result = onAttempt?.(correct);
+    const nextAttempts = result?.attemptsInRound ?? localAttempts + 1;
+    const unlocked = result?.canGoNext ?? (correct || nextAttempts >= limit);
+    setLocalAttempts(nextAttempts);
+    setContinueUnlocked(unlocked && !correct);
+    return unlocked;
+  };
+
   const checkWord = () => {
     if (completed || filledCount !== tileCount) return;
 
     if (word === data.answer) {
+      registerAttempt(true);
       completedRef.current = true;
       setCompleted(true);
       setWrong(false);
@@ -377,6 +405,11 @@ export default function WordBuildActivity({
       if (mismatch >= 0) {
         message = `${mismatch + 1} নম্বর জায়গাটি আবার দেখো। পুরো শব্দ নতুন করে শুরু করতে হবে না।`;
       }
+    }
+
+    const unlocked = registerAttempt(false);
+    if (unlocked) {
+      message = `${message} পরের ধাপ খুলে গেছে—চাইলে আবার চেষ্টা করো।`;
     }
 
     setWrong(true);
@@ -420,6 +453,10 @@ export default function WordBuildActivity({
           <Text style={styles.eyebrow}>WORD BUILDER</Text>
           <Text style={styles.title}>{activity.title ?? "শব্দ বানাই"}</Text>
         </View>
+        <View style={styles.attemptBadge}>
+          <Text style={styles.attemptLabel}>TRY</Text>
+          <Text style={styles.attemptValue}>{Math.min(localAttempts + 1, limit)}/{limit}</Text>
+        </View>
         <Pressable
           onPress={() => void speakLearningVoice(data.answer)}
           style={styles.wordVoiceButton}
@@ -431,6 +468,12 @@ export default function WordBuildActivity({
       <View style={styles.progressTrack}>
         <View style={[styles.progressFill, { width: `${completed ? 100 : progress}%` }]} />
       </View>
+
+      {continueUnlocked && !completed ? (
+        <View style={styles.unlockedBanner}>
+          <Text style={styles.unlockedText}>✓ Next is unlocked. You can keep practicing.</Text>
+        </View>
+      ) : null}
 
       <View style={styles.guideCard}>
         <MimiCharacter
@@ -663,6 +706,11 @@ const styles = StyleSheet.create({
   header: { width: "100%", flexDirection: "row", alignItems: "center" },
   headerIcon: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "#7653BD" },
   headerIconText: { fontSize: 22 },
+  attemptBadge: { marginLeft: 8, minWidth: 58, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 14, alignItems: "center", backgroundColor: "#F2ECFF" },
+  attemptLabel: { fontSize: 8, fontWeight: "900", color: "#897D92" },
+  attemptValue: { marginTop: 1, fontSize: 12, fontWeight: "900", color: "#7653BD" },
+  unlockedBanner: { width: "100%", marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 14, backgroundColor: "#EAF5FF" },
+  unlockedText: { fontSize: 12, fontWeight: "800", textAlign: "center", color: "#287DA4" },
   headerCopy: { flex: 1, marginLeft: 11 },
   eyebrow: { fontSize: 8, letterSpacing: 1.2, fontWeight: "900", color: "#958A9A" },
   title: { marginTop: 3, fontSize: 18, fontWeight: "900", color: "#2B252F" },

@@ -116,6 +116,7 @@ function adaptActivity(
         .map((card) => ({
           emoji: card.emoji ?? "🖼️",
           word: card.word_bn,
+          imageUrl: card.image_url,
         }))
         .filter((card) => card.word.trim().length > 0);
 
@@ -132,10 +133,49 @@ function adaptActivity(
     }
 
     case "matching": {
+      const hasUniversalSides = activity.payload.pairs.some((pair) =>
+        Boolean(
+          pair.left_text ||
+            pair.right_text ||
+            pair.left_image_url ||
+            pair.right_image_url,
+        ),
+      );
+
+      if (hasUniversalSides) {
+        const pairs = activity.payload.pairs
+          .map((pair, index) => ({
+            id: pair.id || `${activity.id}-pair-${index + 1}`,
+            leftText: (pair.left_text ?? pair.word_bn ?? "").trim() || undefined,
+            rightText: (pair.right_text ?? "").trim() || undefined,
+            leftImageUrl: pair.left_image_url || undefined,
+            rightImageUrl: pair.right_image_url ?? pair.image_url ?? undefined,
+            rightEmoji: pair.emoji || undefined,
+          }))
+          .filter((pair) =>
+            Boolean(
+              (pair.leftText || pair.leftImageUrl) &&
+                (pair.rightText || pair.rightImageUrl || pair.rightEmoji),
+            ),
+          );
+
+        return pairs.length
+          ? [
+              {
+                id: activity.id,
+                type: "universal_matching",
+                prompt: instruction || title,
+                pairs,
+                maxAttempts: activity.payload.max_attempts,
+              },
+            ]
+          : [];
+      }
+
       const pairs = activity.payload.pairs
         .map((pair) => ({
           emoji: pair.emoji ?? "🖼️",
-          word: pair.word_bn,
+          word: pair.word_bn ?? pair.left_text ?? "",
         }))
         .filter((pair) => pair.word.trim().length > 0);
 
@@ -146,6 +186,7 @@ function adaptActivity(
               type: "matching",
               prompt: instruction || title,
               pairs,
+              maxAttempts: activity.payload.max_attempts,
             },
           ]
         : [];
@@ -155,6 +196,7 @@ function adaptActivity(
       return adaptQuizQuestions(
         chapter.quiz_questions,
         activity.id,
+        activity.payload.max_attempts,
       );
 
     case "tap": {
@@ -164,6 +206,7 @@ function adaptActivity(
           emoji: item.emoji ?? "🖼️",
           label: item.label_bn,
           description: item.description_bn ?? item.label_bn,
+          imageUrl: item.image_url,
         }))
         .filter((item) => item.label.trim().length > 0);
 
@@ -223,6 +266,7 @@ function adaptActivity(
           prompt: instruction || title,
           letters: activity.payload.letters,
           answer: activity.payload.answer,
+          maxAttempts: activity.payload.max_attempts,
         },
       ];
 
@@ -235,8 +279,10 @@ function adaptActivity(
           options: activity.payload.options.map((item) => ({
             emoji: item.emoji ?? "🖼️",
             label: item.label_bn,
+            imageUrl: item.image_url,
           })),
           answer: activity.payload.answer,
+          maxAttempts: activity.payload.max_attempts,
         },
       ];
 
@@ -288,6 +334,7 @@ function adaptPuzzle(
           options,
           answer,
           hint: payload.hint ?? "খালি জায়গার অক্ষরটি আবার দেখো।",
+          maxAttempts: payload.max_attempts,
         },
       ];
     }
@@ -300,8 +347,6 @@ function adaptPuzzle(
         return [];
       }
 
-      // WordBuildActivity joins tile strings directly. A trailing space on
-      // each word preserves sentence spacing while keeping every tile movable.
       return [
         {
           id: activityId,
@@ -309,44 +354,110 @@ function adaptPuzzle(
           prompt,
           letters: words.map((word) => `${word} `),
           answer: correctOrder.map((word) => `${word} `).join(""),
+          maxAttempts: payload.max_attempts,
         },
       ];
     }
 
     case "category_sort": {
-      const categories = new Map(
-        (payload.categories ?? []).map((category) => [
-          category.id,
-          category.label_bn,
-        ]),
-      );
-      const items = (payload.items ?? [])
-        .filter((item) => Boolean(item.target))
-        .map((item) => ({
-          emoji: [item.emoji, item.label_bn]
-            .filter(Boolean)
-            .join(" "),
-          target:
-            categories.get(item.target ?? "") ??
-            item.target ??
-            "সঠিক দল",
-        }));
+      const categories = (payload.categories ?? [])
+        .map((category) =>
+          typeof category === "string"
+            ? category
+            : category.label_bn,
+        )
+        .map((value) => value.trim())
+        .filter(Boolean);
 
-      return items.length
-        ? [
-            {
-              id: activityId,
-              type: "drag_game",
-              prompt,
-              items,
-            },
-          ]
-        : [];
+      const items = (payload.items ?? [])
+        .map((item, index) => ({
+          id: item.id || `${activityId}-sort-${index + 1}`,
+          label: (item.label ?? item.label_bn ?? "").trim(),
+          emoji: item.emoji,
+          imageUrl: item.image_url,
+          target: (item.target ?? item.category ?? "").trim(),
+        }))
+        .filter((item) =>
+          Boolean(item.target && (item.label || item.emoji || item.imageUrl)),
+        );
+
+      if (categories.length < 2 || items.length < 2) return [];
+
+      return [
+        {
+          id: activityId,
+          type: "universal_puzzle",
+          mode: "category_sort",
+          prompt,
+          voiceText: payload.voice_text,
+          hint: payload.hint,
+          maxAttempts: payload.max_attempts,
+          categories,
+          items,
+        },
+      ];
+    }
+
+    case "numeric_answer":
+    case "equation":
+    case "missing_number":
+    case "number_sequence":
+    case "fill_blank":
+    case "counting":
+    case "ordering":
+    case "true_false": {
+      const words = payload.words ?? [];
+      const correctOrder = payload.correct_order ?? [];
+
+      if (
+        payload.mode === "ordering" &&
+        (!words.length || correctOrder.length !== words.length)
+      ) {
+        return [];
+      }
+
+      const categories = (payload.categories ?? [])
+        .map((category) =>
+          typeof category === "string"
+            ? category
+            : category.label_bn,
+        )
+        .filter(Boolean);
+
+      return [
+        {
+          id: activityId,
+          type: "universal_puzzle",
+          mode: payload.mode,
+          prompt,
+          voiceText: payload.voice_text,
+          hint: payload.hint,
+          maxAttempts: payload.max_attempts,
+          expression: payload.expression,
+          pattern: payload.pattern,
+          sequenceText: payload.sequence_text,
+          statement: payload.statement,
+          options: payload.options,
+          correctAnswer: payload.correct_answer,
+          acceptedAnswers: payload.accepted_answers,
+          unit: payload.unit,
+          words,
+          correctOrder,
+          orderingDirection: payload.ordering_direction,
+          categories,
+          countItem: payload.count_item
+            ? {
+                emoji: payload.count_item.emoji,
+                imageUrl: payload.count_item.image_url,
+                label: payload.count_item.label,
+              }
+            : undefined,
+          quantity: payload.quantity,
+        },
+      ];
     }
 
     case "image_jigsaw":
-      // Reserved by the schema for phase 2. Keeping it out of the renderer
-      // prevents a half-working jigsaw from reaching children.
       return [];
   }
 }
@@ -354,6 +465,7 @@ function adaptPuzzle(
 function adaptQuizQuestions(
   questions: SupabaseQuizQuestion[],
   activityId: string,
+  maxAttempts?: number,
 ): Activity[] {
   const linkedQuestions = questions.filter(
     (question) => question.activity_id === activityId,
@@ -385,6 +497,7 @@ function adaptQuizQuestions(
           answer: correctAnswer,
           hint:
             question.explanation_bn ?? "আবার চেষ্টা করো।",
+          maxAttempts,
         },
       ];
     });

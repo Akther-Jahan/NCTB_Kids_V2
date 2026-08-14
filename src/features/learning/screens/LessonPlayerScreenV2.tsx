@@ -27,6 +27,8 @@ import MimiIntroActivity from "../components/MimiIntroActivity";
 import PictureChoiceActivity from "../components/PictureChoiceActivity";
 import QuizBattleActivity from "../components/QuizBattleActivity";
 import TapCards from "../components/TapActivity";
+import UniversalPuzzleActivity from "../components/UniversalPuzzleActivity";
+import UniversalMatchingActivity from "../components/UniversalMatchingActivity";
 import { VideoActivity } from "../components/VideoActivity";
 import VoiceActivity from "../components/VoiceActivity";
 import WordBuildActivity from "../components/WordBuildActivity";
@@ -48,6 +50,10 @@ import {
   type QuestionResult,
   type QuizSummary,
 } from "../types/questionResults";
+import {
+  clampMaxAttempts,
+  type ActivityAttemptResult,
+} from "../types/attemptPolicy";
 
 const EMPTY_SUMMARY: QuizSummary = {
   total: 0,
@@ -59,6 +65,35 @@ const EMPTY_SUMMARY: QuizSummary = {
 
 function isQuizActivity(activity: Activity) {
   return activity.type === "quiz" || activity.type === "choice";
+}
+
+function isAttemptBasedActivity(activity: Activity) {
+  return (
+    activity.type === "quiz" ||
+    activity.type === "choice" ||
+    activity.type === "word_build" ||
+    activity.type === "matching" ||
+    activity.type === "universal_matching" ||
+    activity.type === "picture_choice" ||
+    activity.type === "universal_puzzle"
+  );
+}
+
+function activityMaxAttempts(activity: Activity) {
+  switch (activity.type) {
+    case "quiz":
+    case "choice":
+    case "word_build":
+    case "matching":
+    case "universal_matching":
+    case "picture_choice":
+    case "universal_puzzle":
+      return clampMaxAttempts(
+        activity.maxAttempts ?? DEFAULT_QUIZ_MAX_ATTEMPTS,
+      );
+    default:
+      return DEFAULT_QUIZ_MAX_ATTEMPTS;
+  }
 }
 
 function requiresCompletion(activity: Activity) {
@@ -81,6 +116,8 @@ function activityInstruction(activity: Activity) {
       return activity.question;
     case "quiz":
       return activity.question;
+    case "universal_puzzle":
+      return activity.voiceText || activity.prompt || activity.expression || activity.pattern || activity.sequenceText || activity.statement || "Puzzle";
     default:
       return activity.prompt;
   }
@@ -110,10 +147,14 @@ function activityLabel(activity: Activity) {
       return ["🎤", "বলে শিখি"] as const;
     case "matching":
       return ["🔗", "মিল খুঁজি"] as const;
+    case "universal_matching":
+      return ["🔗", "Matching"] as const;
     case "picture_choice":
       return ["🔍", "ছবি চিনি"] as const;
     case "drag_game":
       return ["🎯", "খেলা"] as const;
+    case "universal_puzzle":
+      return ["🧠", "পাজল"] as const;
     case "choice":
       return ["❓", "প্রশ্ন"] as const;
     case "quiz":
@@ -157,6 +198,10 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
   const allActivities = chapter?.activities ?? [];
   const quizIds = useMemo(
     () => allActivities.filter(isQuizActivity).map((item) => item.id),
+    [allActivities],
+  );
+  const gradedActivityIds = useMemo(
+    () => allActivities.filter(isAttemptBasedActivity).map((item) => item.id),
     [allActivities],
   );
   const cloudQuizIds = useMemo(
@@ -210,15 +255,20 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
   const completedActivityIds = session?.completedActivityIds ?? [];
   const questionResults = session?.questionResults ?? {};
   const questionResult = activity ? questionResults[activity.id] : undefined;
+  const currentMaxAttempts = activity
+    ? activityMaxAttempts(activity)
+    : DEFAULT_QUIZ_MAX_ATTEMPTS;
+  const attemptGateUnlocked = Boolean(
+    activity &&
+      isAttemptBasedActivity(activity) &&
+      questionResult &&
+      (questionResult.status === "correct" ||
+        questionResult.attemptsInRound >= currentMaxAttempts),
+  );
   const activityComplete = activity
     ? !requiresCompletion(activity) ||
       completedActivityIds.includes(activity.id) ||
-      (isQuizActivity(activity) &&
-        Boolean(
-          questionResult &&
-            (questionResult.status === "correct" ||
-              questionResult.attemptsInRound >= DEFAULT_QUIZ_MAX_ATTEMPTS),
-        ))
+      attemptGateUnlocked
     : false;
   const progress = runActivities.length
     ? ((step + (activityComplete ? 1 : 0)) / runActivities.length) * 100
@@ -231,6 +281,12 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
   };
 
   const currentSummary = () =>
+    summarizeQuestionResults(
+      gradedActivityIds,
+      useLessonSessionStore.getState().sessions[chapterId]?.questionResults ?? {},
+    );
+
+  const currentQuizSummary = () =>
     summarizeQuestionResults(
       quizIds,
       useLessonSessionStore.getState().sessions[chapterId]?.questionResults ?? {},
@@ -256,7 +312,9 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
     if (!chapter) return;
 
     const summary = currentSummary();
-    const allQuizCorrect = summary.total === 0 || summary.correct === summary.total;
+    const quizSummary = currentQuizSummary();
+    const allQuizCorrect =
+      quizSummary.total === 0 || quizSummary.correct === quizSummary.total;
     const score = summary.total
       ? Math.round((summary.correct / summary.total) * 100)
       : 100;
@@ -307,8 +365,8 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
     if (!activityComplete) {
       Alert.alert(
         "কাজটি শেষ করো",
-        isQuizActivity(activity)
-          ? "একটি উত্তর বেছে নিয়ে জমা দাও। সর্বোচ্চ ৩ বার ভুল হলে পরের প্রশ্নে যেতে পারবে।"
+        isAttemptBasedActivity(activity)
+          ? `উত্তর জমা দাও। ${currentMaxAttempts} বার চেষ্টা করার পরও না হলে পরের ধাপ নিজে থেকেই খুলে যাবে।`
           : "এই শেখার কাজটি শেষ করলে পরের ধাপে যেতে পারবে।",
       );
       return;
@@ -384,14 +442,14 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
             <Text style={styles.resultSubtitle}>তুমি খুব সুন্দরভাবে চেষ্টা করেছো 🌟</Text>
 
             <View style={styles.resultGrid}>
-              <ResultStat label="মোট প্রশ্ন" value={result.summary.total} />
+              <ResultStat label="মোট practice" value={result.summary.total} />
               <ResultStat label="সঠিক" value={result.summary.correct} />
               <ResultStat label="আবার করতে হবে" value={remaining} />
               <ResultStat label="মোট চেষ্টা" value={result.summary.totalAttempts} />
             </View>
 
             <View style={styles.masteryHeader}>
-              <Text style={styles.masteryLabel}>Quiz mastery</Text>
+              <Text style={styles.masteryLabel}>Practice mastery</Text>
               <Text style={styles.masteryValue}>{result.score}%</Text>
             </View>
             <View style={styles.masteryTrack}>
@@ -489,7 +547,28 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
               activity={activity}
               completed={completedActivityIds.includes(activity.id)}
               questionResult={questionResult}
+              attempts={questionResult?.attemptsInRound ?? 0}
+              maxAttempts={currentMaxAttempts}
               onComplete={() => markActivityComplete(chapterId, activity.id)}
+              onActivityAttempt={(correct) => {
+                const submitted = submitQuestionAnswer({
+                  chapterId,
+                  activityId: activity.id,
+                  selectedOption: 0,
+                  correct,
+                  maxAttempts: currentMaxAttempts,
+                });
+
+                if (submitted.question.status === "correct") {
+                  markActivityComplete(chapterId, activity.id);
+                }
+
+                return {
+                  attemptsInRound: submitted.question.attemptsInRound,
+                  canGoNext: submitted.canGoNext,
+                  status: submitted.question.status,
+                };
+              }}
               onQuestionSelect={(index) =>
                 selectQuestionOption(chapterId, activity.id, index)
               }
@@ -499,9 +578,9 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
                   activityId: activity.id,
                   selectedOption: index,
                   correct,
-                  maxAttempts: DEFAULT_QUIZ_MAX_ATTEMPTS,
+                  maxAttempts: currentMaxAttempts,
                 });
-                if (submitted.canGoNext) {
+                if (submitted.question.status === "correct") {
                   markActivityComplete(chapterId, activity.id);
                 }
                 return submitted;
@@ -543,7 +622,10 @@ function ActivityRenderer({
   activity,
   completed,
   questionResult,
+  attempts,
+  maxAttempts,
   onComplete,
+  onActivityAttempt,
   onQuestionSelect,
   onQuestionSubmit,
   onQuestionReward,
@@ -551,7 +633,10 @@ function ActivityRenderer({
   activity: Activity;
   completed: boolean;
   questionResult?: QuestionResult;
+  attempts: number;
+  maxAttempts: number;
   onComplete: () => void;
+  onActivityAttempt: (correct: boolean) => ActivityAttemptResult;
   onQuestionSelect: (index: number) => void;
   onQuestionSubmit: (index: number, correct: boolean) => SubmitQuestionAnswerResult;
   onQuestionReward: () => void;
@@ -593,6 +678,9 @@ function ActivityRenderer({
       return (
         <WordBuildActivity
           activity={{ title: "শব্দ বানাই", data: { prompt: activity.prompt, letters: activity.letters, answer: activity.answer } }}
+          attempts={attempts}
+          maxAttempts={maxAttempts}
+          onAttempt={onActivityAttempt}
           onComplete={onComplete}
         />
       );
@@ -603,16 +691,48 @@ function ActivityRenderer({
     case "voice":
       return <VoiceActivity activity={{ payload: { prompt: activity.prompt, word: activity.word, emoji: activity.emoji } }} onComplete={onComplete} />;
     case "matching":
-      return <MatchingActivity activity={{ payload: { prompt: activity.prompt, pairs: activity.pairs } }} onComplete={onComplete} />;
+      return (
+        <MatchingActivity
+          activity={{ payload: { prompt: activity.prompt, pairs: activity.pairs } }}
+          attempts={attempts}
+          maxAttempts={maxAttempts}
+          onAttempt={onActivityAttempt}
+          onComplete={onComplete}
+        />
+      );
+    case "universal_matching":
+      return (
+        <UniversalMatchingActivity
+          activity={activity}
+          attempts={attempts}
+          maxAttempts={maxAttempts}
+          onAttempt={onActivityAttempt}
+          onComplete={onComplete}
+        />
+      );
     case "picture_choice":
       return (
         <PictureChoiceActivity
           activity={{ title: "ছবি চিনে নেই", data: { question: activity.question, options: activity.options, answer: activity.answer } }}
+          attempts={attempts}
+          maxAttempts={maxAttempts}
+          onAttempt={onActivityAttempt}
           onComplete={onComplete}
         />
       );
     case "drag_game":
       return <DragGameActivity activity={{ payload: { prompt: activity.prompt, items: activity.items } }} onComplete={onComplete} />;
+    case "universal_puzzle":
+      return (
+        <UniversalPuzzleActivity
+          activity={activity}
+          completed={completed}
+          attempts={attempts}
+          maxAttempts={maxAttempts}
+          onAttempt={onActivityAttempt}
+          onComplete={onComplete}
+        />
+      );
     case "choice":
       return (
         <QuizBattleActivity
@@ -620,7 +740,7 @@ function ActivityRenderer({
           options={activity.options}
           answer={activity.answer}
           hint={activity.hint}
-          maxAttempts={DEFAULT_QUIZ_MAX_ATTEMPTS}
+          maxAttempts={maxAttempts}
           result={questionResult}
           onSelectOption={onQuestionSelect}
           onSubmitAnswer={onQuestionSubmit}
@@ -634,7 +754,7 @@ function ActivityRenderer({
           options={activity.options}
           answer={activity.answer}
           hint={activity.hint}
-          maxAttempts={DEFAULT_QUIZ_MAX_ATTEMPTS}
+          maxAttempts={maxAttempts}
           result={questionResult}
           onSelectOption={onQuestionSelect}
           onSubmitAnswer={onQuestionSubmit}

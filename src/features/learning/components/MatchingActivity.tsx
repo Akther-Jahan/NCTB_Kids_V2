@@ -15,6 +15,10 @@ import {
 import * as Speech from "expo-speech";
 
 import MimiCharacter from "./MimiCharacter";
+import {
+  clampMaxAttempts,
+  type ActivityAttemptResult,
+} from "../types/attemptPolicy";
 
 type Pair = {
   emoji: string;
@@ -28,7 +32,10 @@ type Props = {
       pairs: Pair[];
     };
   };
+  attempts?: number;
+  maxAttempts?: number;
   onComplete: () => void;
+  onAttempt?: (correct: boolean) => ActivityAttemptResult;
 };
 
 function speakBangla(text: string) {
@@ -43,7 +50,10 @@ function speakBangla(text: string) {
 
 export default function MatchingActivity({
   activity,
+  attempts = 0,
+  maxAttempts,
   onComplete,
+  onAttempt,
 }: Props) {
   const { width } = useWindowDimensions();
 
@@ -80,10 +90,18 @@ export default function MatchingActivity({
   >([]);
 
   const [wrong, setWrong] = useState(false);
+  const [localAttempts, setLocalAttempts] = useState(attempts);
+  const [continueUnlocked, setContinueUnlocked] = useState(false);
+  const limit = clampMaxAttempts(maxAttempts);
 
   useEffect(() => {
     onCompleteRef.current = onComplete;
   }, [onComplete]);
+
+  useEffect(() => {
+    setLocalAttempts(attempts);
+    setContinueUnlocked(attempts >= limit);
+  }, [attempts, limit]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -144,6 +162,15 @@ export default function MatchingActivity({
     ]).start();
   };
 
+  const registerAttempt = (correct: boolean) => {
+    const result = onAttempt?.(correct);
+    const nextAttempts = result?.attemptsInRound ?? localAttempts + 1;
+    const unlocked = result?.canGoNext ?? (correct || nextAttempts >= limit);
+    setLocalAttempts(nextAttempts);
+    setContinueUnlocked(unlocked && !correct);
+    return unlocked;
+  };
+
   const checkMatch = (
     pictureIndex: number,
     wordIndex: number,
@@ -172,7 +199,9 @@ export default function MatchingActivity({
           data.pairs.length &&
         !completedRef.current
       ) {
+        registerAttempt(true);
         completedRef.current = true;
+        setContinueUnlocked(false);
 
         setTimeout(() => {
           speakBangla(
@@ -183,11 +212,14 @@ export default function MatchingActivity({
         onCompleteRef.current();
       }
     } else {
+      const unlocked = registerAttempt(false);
       setWrong(true);
       runWrongAnimation();
 
       speakBangla(
-        "মিল হয়নি। আবার চেষ্টা করো।",
+        unlocked
+          ? "মিল হয়নি। পরের ধাপ খুলে গেছে। চাইলে আবার চেষ্টা করো।"
+          : "মিল হয়নি। আবার চেষ্টা করো।",
       );
     }
 
@@ -266,6 +298,11 @@ export default function MatchingActivity({
             {data.pairs.length}
           </Text>
         </View>
+      </View>
+
+      <View style={styles.attemptRow}>
+        <Text style={styles.attemptText}>TRY {Math.min(localAttempts + 1, limit)}/{limit}</Text>
+        {continueUnlocked && !completedRef.current ? <Text style={styles.unlockedText}>Next unlocked ✓</Text> : null}
       </View>
 
       <View style={styles.progressTrack}>
@@ -574,6 +611,9 @@ const styles = StyleSheet.create({
     color: "#7653BD",
   },
 
+  attemptRow: { width: "100%", marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  attemptText: { fontSize: 11, fontWeight: "900", color: "#7653BD" },
+  unlockedText: { fontSize: 11, fontWeight: "900", color: "#287DA4" },
   progressTrack: {
     width: "100%",
     height: 8,

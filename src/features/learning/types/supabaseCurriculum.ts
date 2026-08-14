@@ -24,6 +24,7 @@ export type LessonActivityType = SupabaseActivityType;
 export type BasePayload = {
   schema_version: number;
   reward_xp?: number;
+  max_attempts?: number;
 };
 
 export type StorySnippetPayload = BasePayload & {
@@ -90,9 +91,13 @@ export type MatchingPayload = BasePayload & {
   shuffle?: boolean;
   pairs: Array<{
     id: string;
-    word_bn: string;
+    word_bn?: string;
+    left_text?: string;
+    right_text?: string;
     emoji?: string;
     image_url?: string;
+    left_image_url?: string;
+    right_image_url?: string;
     audio_url?: string;
   }>;
 };
@@ -115,6 +120,7 @@ export type TapPayload = BasePayload & {
     emoji?: string;
     label_bn: string;
     description_bn?: string;
+    image_url?: string;
   }>;
 };
 
@@ -157,6 +163,14 @@ export type PuzzleMode =
   | "missing_letter"
   | "word_order"
   | "category_sort"
+  | "numeric_answer"
+  | "equation"
+  | "missing_number"
+  | "number_sequence"
+  | "fill_blank"
+  | "counting"
+  | "ordering"
+  | "true_false"
   | "image_jigsaw";
 
 export type PuzzleCategory = {
@@ -166,9 +180,12 @@ export type PuzzleCategory = {
 
 export type PuzzleItem = {
   id: string;
-  label_bn: string;
+  label_bn?: string;
+  label?: string;
   emoji?: string;
   target?: string;
+  category?: string;
+  image_url?: string;
 };
 
 export type PuzzlePayload = BasePayload & {
@@ -187,8 +204,22 @@ export type PuzzlePayload = BasePayload & {
   correct_order?: string[];
 
   // Category Sort
-  categories?: PuzzleCategory[];
+  categories?: Array<PuzzleCategory | string>;
   items?: PuzzleItem[];
+
+  // Universal answer modes
+  expression?: string;
+  statement?: string;
+  sequence_text?: string;
+  accepted_answers?: string[];
+  unit?: string;
+  ordering_direction?: "ascending" | "descending" | "custom";
+  count_item?: {
+    emoji?: string;
+    image_url?: string;
+    label?: string;
+  };
+  quantity?: number;
 
   // Reserved for the later jigsaw phase.
   image_url?: string;

@@ -62,6 +62,7 @@ export type WordBuildActivity = {
   prompt: string;
   letters: string[];
   answer: string;
+  maxAttempts?: number;
 };
 
 export type TapActivity = {
@@ -73,6 +74,7 @@ export type TapActivity = {
     emoji: string;
     label: string;
     description: string;
+    imageUrl?: string;
   }[];
 };
 
@@ -83,6 +85,7 @@ export type FlashcardActivity = {
   cards: {
     emoji: string;
     word: string;
+    imageUrl?: string;
   }[];
 };
 
@@ -102,15 +105,33 @@ export type MatchingActivity = {
     emoji: string;
     word: string;
   }[];
+  maxAttempts?: number;
+};
+
+export type UniversalMatchingActivity = {
+  id: string;
+  type: "universal_matching";
+  prompt: string;
+  maxAttempts?: number;
+  pairs: Array<{
+    id: string;
+    leftText?: string;
+    rightText?: string;
+    leftImageUrl?: string;
+    rightImageUrl?: string;
+    rightEmoji?: string;
+  }>;
 };
 
 export type PictureChoiceActivity = {
   id: string;
   type: "picture_choice";
   question: string;
+  maxAttempts?: number;
   options: {
     emoji: string;
     label: string;
+    imageUrl?: string;
   }[];
   answer: number;
 };
@@ -125,10 +146,56 @@ export type DragGameActivity = {
   }[];
 };
 
+
+export type UniversalPuzzleActivity = {
+  id: string;
+  type: "universal_puzzle";
+  prompt: string;
+  maxAttempts?: number;
+  mode:
+    | "category_sort"
+    | "numeric_answer"
+    | "equation"
+    | "missing_number"
+    | "number_sequence"
+    | "fill_blank"
+    | "counting"
+    | "ordering"
+    | "true_false";
+  voiceText?: string;
+  hint?: string;
+  expression?: string;
+  pattern?: string;
+  sequenceText?: string;
+  statement?: string;
+  options?: string[];
+  correctAnswer?: string;
+  acceptedAnswers?: string[];
+  unit?: string;
+  words?: string[];
+  correctOrder?: string[];
+  orderingDirection?: "ascending" | "descending" | "custom";
+  categories?: string[];
+  items?: Array<{
+    id: string;
+    label: string;
+    emoji?: string;
+    imageUrl?: string;
+    target: string;
+  }>;
+  countItem?: {
+    emoji?: string;
+    imageUrl?: string;
+    label?: string;
+  };
+  quantity?: number;
+};
+
 export type ChoiceActivity = {
   id: string;
   type: "choice";
   prompt: string;
+  maxAttempts?: number;
   options: string[];
   answer: number;
   hint: string;
@@ -138,6 +205,7 @@ export type QuizActivity = {
   id: string;
   type: "quiz";
   question: string;
+  maxAttempts?: number;
   options: string[];
   answer: number;
   hint: string;
@@ -155,8 +223,10 @@ export type Activity =
   | FlashcardActivity
   | VoiceActivity
   | MatchingActivity
+  | UniversalMatchingActivity
   | PictureChoiceActivity
   | DragGameActivity
+  | UniversalPuzzleActivity
   | ChoiceActivity
   | QuizActivity;
 

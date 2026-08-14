@@ -5,6 +5,7 @@ import React, {
   useState,
 } from "react";
 import {
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -20,6 +21,7 @@ type TapItem = {
   emoji: string;
   label: string;
   description: string;
+  imageUrl?: string;
 };
 
 type Props = {
@@ -283,9 +285,17 @@ export default function TapActivity({
                     styles.emojiCircleDone,
                 ]}
               >
-                <Text style={styles.emoji}>
-                  {item.emoji || "⭐"}
-                </Text>
+                {item.imageUrl ? (
+                  <Image
+                    source={{ uri: item.imageUrl }}
+                    style={styles.itemImage}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <Text style={styles.emoji}>
+                    {item.emoji || "⭐"}
+                  </Text>
+                )}
               </View>
 
               <Text
@@ -624,6 +634,11 @@ const styles = StyleSheet.create({
   },
   emoji: {
     fontSize: 38,
+  },
+
+  itemImage: {
+    width: 60,
+    height: 60,
   },
   label: {
     minHeight: 28,

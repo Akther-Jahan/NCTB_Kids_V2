@@ -4,6 +4,7 @@ import React, {
   useState,
 } from "react";
 import {
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -17,6 +18,7 @@ import MimiCharacter from "./MimiCharacter";
 type Flashcard = {
   emoji: string;
   word: string;
+  imageUrl?: string;
 };
 
 type Props = {
@@ -307,14 +309,22 @@ export default function FlashcardActivity({
         </View>
 
         <View style={styles.emojiCircle}>
-          <Text
-            style={[
-              styles.emoji,
-              isTablet && styles.emojiTablet,
-            ]}
-          >
-            {currentCard.emoji || "⭐"}
-          </Text>
+          {currentCard.imageUrl ? (
+            <Image
+              source={{ uri: currentCard.imageUrl }}
+              style={styles.cardImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <Text
+              style={[
+                styles.emoji,
+                isTablet && styles.emojiTablet,
+              ]}
+            >
+              {currentCard.emoji || "⭐"}
+            </Text>
+          )}
         </View>
 
         <Text
@@ -675,6 +685,11 @@ const styles = StyleSheet.create({
 
   emoji: {
     fontSize: 70,
+  },
+
+  cardImage: {
+    width: 92,
+    height: 92,
   },
 
   emojiTablet: {
