@@ -34,6 +34,7 @@ const STATUSES: PublicationStatus[] = [
 ];
 
 type OptionForm = {
+  id?: string;
   labelBn: string;
   labelEn: string;
   imageUrl: string;
@@ -59,18 +60,6 @@ function createOptions(): OptionForm[] {
       labelEn: "",
       imageUrl: "",
       isCorrect: true,
-    },
-    {
-      labelBn: "",
-      labelEn: "",
-      imageUrl: "",
-      isCorrect: false,
-    },
-    {
-      labelBn: "",
-      labelEn: "",
-      imageUrl: "",
-      isCorrect: false,
     },
     {
       labelBn: "",
@@ -229,6 +218,7 @@ export default function AdminQuizEditorScreen({
   ) => {
     const mappedOptions = question.options.map(
       (option): OptionForm => ({
+        id: option.id,
         labelBn: option.labelBn,
         labelEn: option.labelEn ?? "",
         imageUrl: option.imageUrl ?? "",
@@ -394,6 +384,7 @@ export default function AdminQuizEditorScreen({
     try {
       const optionPayload: AdminQuizOption[] =
         cleanedOptions.map((option, index) => ({
+          id: option.id,
           optionOrder: index + 1,
           labelBn: option.labelBn,
           labelEn:

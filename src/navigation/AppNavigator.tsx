@@ -15,7 +15,7 @@ import RegisterScreen from "../features/auth/screens/RegisterScreen";
 import ForgotPasswordScreen from "../features/auth/screens/ForgotPasswordScreen";
 import AdminLoginScreen from "../features/admin/screens/AdminLoginScreen";
 import LiveOverview from "../features/admin/components/LiveOverview";
-import AdminContentEditorScreen from "../features/admin/screens/AdminContentEditorScreen";
+import AdminContentEditorScreenV2 from "../features/admin/screens/AdminContentEditorScreenV2";
 import AdminQuizEditorScreen from "../features/admin/screens/AdminQuizEditorScreen";
 
 const Stack =
@@ -94,7 +94,7 @@ export default function AppNavigator() {
       />
       <Stack.Screen
         name="AdminContentEditor"
-        component={AdminContentEditorScreen}
+        component={AdminContentEditorScreenV2}
       />
       <Stack.Screen
         name="AdminQuizEditor"

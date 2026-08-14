@@ -11,6 +11,7 @@ export type AdminDashboardAnalytics = {
   completedChapters: number;
   pendingParentLinks: number;
   studentsByClass: Record<number, number>;
+  unavailableMetrics?: string[];
 };
 
 type CountFilter = {
@@ -20,9 +21,7 @@ type CountFilter = {
 
 function ensureConfigured() {
   if (!isSupabaseConfigured) {
-    throw new Error(
-      "Supabase URL অথবা anon key configure করা নেই।",
-    );
+    throw new Error("Supabase URL অথবা anon key configure করা নেই।");
   }
 }
 
@@ -32,7 +31,7 @@ async function countRows(
 ) {
   let query = adminSupabase
     .from(table)
-    .select("id", { count: "exact", head: true });
+    .select("*", { count: "exact", head: true });
 
   for (const filter of filters) {
     query = query.eq(filter.column, filter.value);
@@ -47,9 +46,31 @@ async function countRows(
   return count ?? 0;
 }
 
+async function safeCountRows(
+  metricName: string,
+  table: string,
+  filters: CountFilter[],
+  unavailableMetrics: string[],
+) {
+  try {
+    return await countRows(table, filters);
+  } catch (error) {
+    unavailableMetrics.push(metricName);
+
+    console.warn(
+      `[AdminDashboard] ${metricName} unavailable:`,
+      error instanceof Error ? error.message : error,
+    );
+
+    return 0;
+  }
+}
+
 export const adminDashboardService = {
   async getAnalytics(): Promise<AdminDashboardAnalytics> {
     ensureConfigured();
+
+    const unavailableMetrics: string[] = [];
 
     const [
       students,
@@ -64,33 +85,17 @@ export const adminDashboardService = {
       class2,
       class3,
     ] = await Promise.all([
-      countRows("students"),
-      countRows("profiles", [
-        { column: "role", value: "parent" },
-      ]),
-      countRows("quiz_questions"),
-      countRows("quiz_questions", [
-        { column: "status", value: "published" },
-      ]),
-      countRows("activity_attempts"),
-      countRows("activity_attempts", [
-        { column: "is_correct", value: true },
-      ]),
-      countRows("chapter_progress", [
-        { column: "completed", value: true },
-      ]),
-      countRows("parent_link_requests", [
-        { column: "status", value: "pending" },
-      ]),
-      countRows("students", [
-        { column: "class_level", value: 1 },
-      ]),
-      countRows("students", [
-        { column: "class_level", value: 2 },
-      ]),
-      countRows("students", [
-        { column: "class_level", value: 3 },
-      ]),
+      safeCountRows("students", "students", [], unavailableMetrics),
+      safeCountRows("parents", "profiles", [{ column: "role", value: "parent" }], unavailableMetrics),
+      safeCountRows("quizQuestions", "quiz_questions", [], unavailableMetrics),
+      safeCountRows("publishedQuizQuestions", "quiz_questions", [{ column: "status", value: "published" }], unavailableMetrics),
+      safeCountRows("attempts", "activity_attempts", [], unavailableMetrics),
+      safeCountRows("correctAttempts", "activity_attempts", [{ column: "is_correct", value: true }], unavailableMetrics),
+      safeCountRows("completedChapters", "chapter_progress", [{ column: "completed", value: true }], unavailableMetrics),
+      safeCountRows("pendingParentLinks", "parent_link_requests", [{ column: "status", value: "pending" }], unavailableMetrics),
+      safeCountRows("class1", "students", [{ column: "class_level", value: 1 }], unavailableMetrics),
+      safeCountRows("class2", "students", [{ column: "class_level", value: 2 }], unavailableMetrics),
+      safeCountRows("class3", "students", [{ column: "class_level", value: 3 }], unavailableMetrics),
     ]);
 
     return {
@@ -107,6 +112,7 @@ export const adminDashboardService = {
         2: class2,
         3: class3,
       },
+      unavailableMetrics: [...new Set(unavailableMetrics)],
     };
   },
 };

@@ -358,14 +358,8 @@ function adaptQuizQuestions(
   const linkedQuestions = questions.filter(
     (question) => question.activity_id === activityId,
   );
-  const compatibleQuestions =
-    linkedQuestions.length > 0
-      ? linkedQuestions
-      : questions.filter(
-          (question) => question.activity_id === null,
-        );
 
-  return [...compatibleQuestions]
+  return [...linkedQuestions]
     .sort((a, b) => a.order_index - b.order_index)
     .flatMap((question): Activity[] => {
       const options = [...question.quiz_options].sort(

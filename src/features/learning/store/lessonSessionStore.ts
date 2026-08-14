@@ -45,6 +45,9 @@ type LessonSessionStore = {
   startOrResume: (
     chapterId: string,
   ) => LessonSession;
+  startFreshRun: (
+    chapterId: string,
+  ) => LessonSession;
   setStep: (
     chapterId: string,
     step: number,
@@ -241,6 +244,49 @@ export const useLessonSessionStore =
       }
 
       const session = createSession(chapterId);
+
+      const sessions = {
+        ...get().sessions,
+        [chapterId]: session,
+      };
+
+      set({ sessions });
+      void persist(sessions);
+
+      return session;
+    },
+
+    startFreshRun: (chapterId) => {
+      const previous = normalizeSession(
+        chapterId,
+        get().sessions[chapterId],
+      );
+      const timestamp = nowIso();
+
+      const questionResults = Object.fromEntries(
+        Object.entries(previous.questionResults).map(
+          ([activityId, stored]) => {
+            const question =
+              normalizeQuestionResult(stored);
+            const nextQuestion: QuestionResult = {
+              ...question,
+              status: "unanswered",
+              attemptsInRound: 0,
+              updatedAt: timestamp,
+            };
+
+            delete nextQuestion.selectedOption;
+
+            return [activityId, nextQuestion];
+          },
+        ),
+      );
+
+      const session: LessonSession = {
+        ...createSession(chapterId),
+        questionResults,
+        updatedAt: timestamp,
+      };
 
       const sessions = {
         ...get().sessions,

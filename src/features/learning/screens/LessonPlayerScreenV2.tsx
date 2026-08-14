@@ -137,6 +137,7 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
 
   const session = useLessonSessionStore((state) => state.sessions[chapterId]);
   const startOrResume = useLessonSessionStore((state) => state.startOrResume);
+  const startFreshRun = useLessonSessionStore((state) => state.startFreshRun);
   const saveStep = useLessonSessionStore((state) => state.setStep);
   const markActivityComplete = useLessonSessionStore((state) => state.markActivityComplete);
   const selectQuestionOption = useLessonSessionStore((state) => state.selectQuestionOption);
@@ -158,6 +159,13 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
     () => allActivities.filter(isQuizActivity).map((item) => item.id),
     [allActivities],
   );
+  const cloudQuizIds = useMemo(
+    () =>
+      allActivities
+        .filter((item) => item.type === "quiz")
+        .map((item) => item.id),
+    [allActivities],
+  );
   const runActivities = useMemo(() => {
     if (!retryActivityIds) return allActivities;
     const ids = new Set(retryActivityIds);
@@ -167,7 +175,15 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
   useEffect(() => {
     if (!chapter) return;
 
-    const restored = startOrResume(chapterId);
+    const previousSession =
+      useLessonSessionStore.getState().sessions[
+        chapterId
+      ];
+    const restored =
+      !retryIncomplete &&
+      previousSession?.lessonCompletedAt
+        ? startFreshRun(chapterId)
+        : startOrResume(chapterId);
 
     if (retryIncomplete) {
       const ids = resetRetryQuestions(chapterId);
@@ -184,7 +200,7 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
       Math.min(restored.step, Math.max(0, chapter.activities.length - 1)),
     );
     setFinished(false);
-  }, [chapter, chapterId, resetRetryQuestions, retryIncomplete, startOrResume]);
+  }, [chapter, chapterId, resetRetryQuestions, retryIncomplete, startFreshRun, startOrResume]);
 
   useEffect(() => () => {
     void stopLearningVoice();
@@ -249,15 +265,25 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
     if (student && isSupabaseConfigured && !student.id.startsWith("local-")) {
       try {
         if (allQuizCorrect) {
-          await progressService.completeChapter(student.id, chapter.id);
+          await progressService.completeChapter(
+            student.id,
+            chapter.id,
+            cloudQuizIds,
+          );
         } else {
-          await progressService.syncQuizAttempts(student.id, chapter.id);
+          await progressService.syncQuizAttempts(
+            student.id,
+            chapter.id,
+            cloudQuizIds,
+          );
         }
       } catch (syncError) {
         const message = syncError instanceof Error ? syncError.message : String(syncError);
         console.error("Cloud progress save failed:", message);
-        Alert.alert("Cloud progress save হয়নি", message);
-        return;
+        Alert.alert(
+          "Cloud progress save হয়নি",
+          `${message}\n\nLocal result রাখা হয়েছে। পরে cloud sync আবার চেষ্টা হবে।`,
+        );
       }
     }
 

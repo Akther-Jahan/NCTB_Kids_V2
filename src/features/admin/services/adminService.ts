@@ -576,30 +576,89 @@ export const adminService = {
       throw new Error("Quiz question ID তৈরি হয়নি।");
     }
 
-    const { error: deleteError } = await adminSupabase
-      .from("quiz_options")
-      .delete()
-      .eq("question_id", questionId);
+    // Preserve stable quiz option IDs. Learner attempt history references
+    // quiz_options.id, so editing a question must UPDATE existing options
+    // instead of deleting every option and recreating them.
+    const { data: existingOptionRows, error: existingOptionError } =
+      await adminSupabase
+        .from("quiz_options")
+        .select("id")
+        .eq("question_id", questionId);
 
-    throwSupabaseError(deleteError);
+    throwSupabaseError(existingOptionError);
 
-    const optionPayloads = input.options.map(
-      (option, index) => ({
+    const existingIds = new Set(
+      (existingOptionRows ?? []).map(
+        (row) => row.id as string,
+      ),
+    );
+
+    const retainedIds = new Set(
+      input.options
+        .map((option) => option.id)
+        .filter(
+          (id): id is string =>
+            typeof id === "string" &&
+            existingIds.has(id),
+        ),
+    );
+
+    const removedIds = [...existingIds].filter(
+      (id) => !retainedIds.has(id),
+    );
+
+    // Delete removed options first. If learner history references one of
+    // them, the FK will stop the operation before we update/insert options.
+    if (removedIds.length > 0) {
+      const { error: removeError } = await adminSupabase
+        .from("quiz_options")
+        .delete()
+        .in("id", removedIds)
+        .eq("question_id", questionId);
+
+      if (removeError) {
+        if (
+          removeError.message.includes(
+            "activity_attempts_selected_option_id_fkey",
+          )
+        ) {
+          throw new Error(
+            "à¦à¦‡ option-à¦à¦° learner attempt history à¦†à¦›à§‡, à¦¤à¦¾à¦‡ optionà¦Ÿà¦¿ delete à¦•à¦°à¦¾ à¦¯à¦¾à¦¬à§‡ à¦¨à¦¾à¥¤ Option-à¦à¦° à¦²à§‡à¦–à¦¾/à¦›à¦¬à¦¿ edit à¦•à¦°à§à¦¨ à¦…à¦¥à¦¬à¦¾ à¦¨à¦¤à§à¦¨ question à¦¤à§ˆà¦°à¦¿ à¦•à¦°à§à¦¨à¥¤",
+          );
+        }
+
+        throwSupabaseError(removeError);
+      }
+    }
+
+    for (const [index, option] of input.options.entries()) {
+      const optionPayload = {
         question_id: questionId,
         option_order: index + 1,
         label_bn: option.labelBn.trim(),
         label_en: option.labelEn?.trim() || null,
         image_url: option.imageUrl?.trim() || null,
         is_correct: option.isCorrect,
-      }),
-    );
+      };
 
-    const { error: optionError } = await adminSupabase
-      .from("quiz_options")
-      .insert(optionPayloads);
+      if (option.id && existingIds.has(option.id)) {
+        const { error } = await adminSupabase
+          .from("quiz_options")
+          .update(optionPayload)
+          .eq("id", option.id)
+          .eq("question_id", questionId);
 
-    throwSupabaseError(optionError);
-  },
+        throwSupabaseError(error);
+        continue;
+      }
+
+      const { error } = await adminSupabase
+        .from("quiz_options")
+        .insert(optionPayload);
+
+      throwSupabaseError(error);
+    }
+},
 
   async setQuizQuestionStatus(
     questionId: string,
@@ -639,19 +698,52 @@ export const adminService = {
   ) {
     ensureConfigured();
 
-    let query = adminSupabase
+    let questionQuery = adminSupabase
       .from("quiz_questions")
-      .select("id", { count: "exact", head: true })
+      .select("id")
       .eq("chapter_id", chapterId)
       .eq("status", "published");
 
     if (activityId) {
-      query = query.eq("activity_id", activityId);
+      questionQuery = questionQuery.eq(
+        "activity_id",
+        activityId,
+      );
     }
 
-    const { count, error } = await query;
-    throwSupabaseError(error);
+    const { data: questionRows, error: questionError } =
+      await questionQuery;
 
-    return (count ?? 0) > 0;
+    throwSupabaseError(questionError);
+
+    const questionIds = (questionRows ?? []).map(
+      (question) => question.id as string,
+    );
+
+    if (questionIds.length === 0) {
+      return false;
+    }
+
+    const { data: optionRows, error: optionError } =
+      await adminSupabase
+        .from("quiz_options")
+        .select("question_id, is_correct")
+        .in("question_id", questionIds);
+
+    throwSupabaseError(optionError);
+
+    return questionIds.some((questionId) => {
+      const options = (optionRows ?? []).filter(
+        (option) =>
+          option.question_id === questionId,
+      );
+
+      return (
+        options.length >= 2 &&
+        options.filter(
+          (option) => option.is_correct === true,
+        ).length === 1
+      );
+    });
   },
 };

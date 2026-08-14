@@ -44,18 +44,35 @@ async function submitQuizAnswer(
 async function syncQuizAttempts(
   studentId: string,
   chapterId: string,
+  allowedQuestionIds?: string[],
 ) {
-  const {
-    data: questionData,
-    error: questionError,
-  } = await supabase
+  if (
+    allowedQuestionIds !== undefined &&
+    allowedQuestionIds.length === 0
+  ) {
+    return;
+  }
+
+  let questionQuery = supabase
     .from("quiz_questions")
     .select("id")
     .eq("chapter_id", chapterId)
-    .eq("status", "published")
-    .order("order_index", {
-      ascending: true,
-    });
+    .eq("status", "published");
+
+  if (allowedQuestionIds) {
+    questionQuery = questionQuery.in(
+      "id",
+      allowedQuestionIds,
+    );
+  }
+
+  const {
+    data: questionData,
+    error: questionError,
+  } = await questionQuery.order(
+    "order_index",
+    { ascending: true },
+  );
 
   throwSupabaseError(questionError);
 
@@ -136,9 +153,6 @@ async function syncQuizAttempts(
           attempt.question_id === question.id,
       ).length;
 
-    // Only send attempts that the server has not stored yet.
-    // Crucially, we never invent a correct answer here. The server receives
-    // the exact option order the child actually submitted on-device.
     const missingSelections =
       localHistory.slice(savedAttemptCount);
 
@@ -148,7 +162,7 @@ async function syncQuizAttempts(
 
       if (!selectedOption) {
         throw new Error(
-          "Quiz option sync করা যায়নি: saved option index আর published options মিলছে না।",
+          "Quiz option sync করা যায়নি: saved option index আর current published options মিলছে না।",
         );
       }
 
@@ -165,20 +179,24 @@ export const progressService = {
   async syncQuizAttempts(
     studentId: string,
     chapterId: string,
+    allowedQuestionIds?: string[],
   ) {
     await syncQuizAttempts(
       studentId,
       chapterId,
+      allowedQuestionIds,
     );
   },
 
   async completeChapter(
     studentId: string,
     chapterId: string,
+    allowedQuestionIds?: string[],
   ) {
     await syncQuizAttempts(
       studentId,
       chapterId,
+      allowedQuestionIds,
     );
 
     const { data, error } = await supabase.rpc(
