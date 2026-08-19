@@ -8,3 +8,8 @@ dist/
 .DS_Store
 .git/
 *.zip
+
+# Native folders are generated locally for Android Studio/testing, but EAS
+# should use Expo Continuous Native Generation from app.json/config plugins.
+/android
+/ios
