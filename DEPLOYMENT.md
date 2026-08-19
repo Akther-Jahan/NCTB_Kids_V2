@@ -10,7 +10,7 @@
 - Supabase curriculum is enabled through EAS environment variables.
 - Release builds do not silently replace Supabase failures with local lessons.
 - Empty chapters are hidden until at least one activity is published.
-- Demo admin, demo donation, and demo leaderboard routes are excluded from the release navigator.
+- Mobile release navigation does not bundle the admin login/dashboard/content/quiz editor screens; staff content management remains in the separate web admin CMS.
 - Voice Activity intentionally requests microphone permission for listen-and-repeat pronunciation practice.
 - The current Voice Activity records to a local recorder URI for immediate playback/re-recording and does not contain a server upload call for the recorded voice.
 
@@ -51,17 +51,56 @@ eas env:list --environment preview
 eas env:list --environment production
 ```
 
-Before building, run both migrations in order:
+Do not upload the local `.env` file. It is excluded by `.easignore`.
+
+## 2.1 Verify the Supabase release migrations
+
+The SQL currently stored in this repository is incremental SQL for the existing
+NCTB Kids Supabase project. The repository does not yet contain the original
+full database baseline needed to recreate every core table/type/function from a
+brand-new empty Supabase project.
+
+For the existing project, verify that the following release scripts have been
+applied in this order:
 
 ```text
-supabase/migrations/202607300001_parent_auth_foundation.sql
-supabase/migrations/202607300002_public_curriculum_read.sql
+1. supabase/migrations/202607300001_parent_auth_foundation.sql
+2. supabase/migrations/202607300002_public_curriculum_read.sql
+3. supabase/migrations/STUDENT_RECOVERY_MIGRATION.sql
+4. supabase/migrations/PARENT_SETS_CHILD_NAME_MIGRATION.sql
+5. supabase/migrations/PARENT_LINKED_RECOVERY_MIGRATION.sql
+6. supabase/migrations/202608190001_harden_parent_child_recovery.sql
 ```
 
-The second migration grants read-only access to published learning content.
-Draft and archived content remains private.
+The application currently depends on RPCs introduced by the recovery/linking
+scripts, including:
 
-Do not upload the local `.env` file. It is excluded by `.easignore`.
+```text
+restore_student_by_recovery_code(text, text)
+request_parent_link_with_name(text, text)
+recover_linked_child(uuid, uuid)
+```
+
+The final hardening migration keeps the same mobile API contract but adds
+release security checks:
+
+- anonymous child sessions cannot submit parent link requests;
+- parent RPCs require a permanent parent/admin profile;
+- child recovery can only attach to an anonymous child-device session;
+- expired pending parent-link requests are marked expired before a replacement
+  request is inserted;
+- RPC execute grants are re-applied restrictively.
+
+See `supabase/MIGRATION_ORDER.md` for the complete migration notes.
+
+### Migration-history warning
+
+Three historical scripts use legacy descriptive filenames rather than the
+standard Supabase CLI timestamp migration filename format. Do not blindly run
+`supabase db push`, rename historical migrations, or repair remote migration
+history until the real remote schema/history has been inspected. Normalize the
+migration history as a separate maintenance task once remote Supabase access is
+available.
 
 ## 3. Run release checks
 
@@ -89,12 +128,15 @@ Install the APK on at least two physical Android devices and test:
 5. Next-chapter unlocking.
 6. App restart and lesson resume.
 7. Offline/error state behavior (local lessons must not replace cloud content).
-8. Parent registration, login, link request, and logout.
-9. Privacy-policy link.
-10. Account-deletion request link.
-11. Voice Activity target-audio/TTS playback.
-12. Microphone permission granted flow: record, stop, play the child's recording, re-record, and complete the activity.
-13. Microphone permission denied flow: the app must remain usable and show a clear permission message without crashing.
+8. Parent registration, login, link request, approval, and logout.
+9. A parent link request can be retried after an older pending request has expired.
+10. Student recovery with Student ID + recovery code on a new anonymous child session.
+11. Parent-assisted recovery of an already-linked child onto a new anonymous child session.
+12. Privacy-policy link.
+13. Account-deletion request link.
+14. Voice Activity target-audio/TTS playback.
+15. Microphone permission granted flow: record, stop, play the child's recording, re-record, and complete the activity.
+16. Microphone permission denied flow: the app must remain usable and show a clear permission message without crashing.
 
 ## 5. Create a Google Play AAB
 
@@ -135,11 +177,10 @@ production access can be requested.
 - A monitored privacy/contact email.
 - Privacy policy must explain that microphone access is used for pronunciation practice and describe whether voice recordings remain on-device or are transmitted.
 - In the current implementation, Voice Activity itself keeps the recording on-device for immediate playback and does not upload the recorded audio. Re-audit this if cloud speech recognition, analytics, or audio upload is added later.
-- Google Play Data safety answers must reflect the full built app and all SDKs. Google Play defines data as collected when it is transmitted off-device; therefore verify that no SDK transmits voice/audio before declaring on-device voice practice as not collected.
+- Google Play Data safety answers must reflect the full built app and all SDKs. Verify that no SDK transmits voice/audio before declaring on-device voice practice as not collected.
 - Accurate Data safety answers for Supabase authentication and stored progress.
 - Supabase RLS and RPC authorization review.
-- Store icon, feature graphic, phone screenshots, short description, and full
-  description.
+- Store icon, feature graphic, phone screenshots, short description, and full description.
 - Tester feedback contact and a basic test record.
 
 ## Official references
@@ -148,6 +189,8 @@ production access can be requested.
 - EAS environment variables: https://docs.expo.dev/eas/environment-variables/
 - EAS Submit for Android: https://docs.expo.dev/submit/android/
 - Expo Audio: https://docs.expo.dev/versions/v54.0.0/sdk/audio/
+- Supabase database migrations: https://supabase.com/docs/guides/deployment/database-migrations
+- Supabase anonymous sign-ins: https://supabase.com/docs/guides/auth/auth-anonymous
 - Google Play Data safety: https://support.google.com/googleplay/android-developer/answer/10787469
 - Google Play testing requirements:
   https://support.google.com/googleplay/android-developer/answer/14151465
