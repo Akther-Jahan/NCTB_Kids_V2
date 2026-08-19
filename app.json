@@ -38,7 +38,8 @@
           "microphonePermission": "শুনে-বলার অনুশীলনে তোমার কণ্ঠ রেকর্ড ও আবার শুনতে NCTB Kids-কে মাইক্রোফোন ব্যবহার করতে দাও।",
           "recordAudioAndroid": true
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "extra": {
       "eas": {
