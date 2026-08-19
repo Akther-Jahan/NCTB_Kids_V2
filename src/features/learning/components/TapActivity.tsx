@@ -28,17 +28,18 @@ type Props = {
   activity: {
     payload: {
       prompt: string;
+      locale?: string;
       items: TapItem[];
     };
   };
   onComplete: () => void;
 };
 
-function speakBangla(text: string) {
+function speakText(text: string, language = "bn-BD") {
   void Speech.stop();
 
   Speech.speak(text, {
-    language: "bn-BD",
+    language,
     rate: 0.74,
     pitch: 1.04,
     volume: 1,
@@ -80,7 +81,7 @@ export default function TapActivity({
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      speakBangla(data.prompt);
+      speakText(data.prompt, data.locale);
     }, 350);
 
     if (
@@ -100,8 +101,9 @@ export default function TapActivity({
 
   const tapItem = (item: TapItem) => {
     setActiveItem(item);
-    speakBangla(
+    speakText(
       item.description || item.label,
+      data.locale,
     );
 
     if (done.includes(item.id)) {
@@ -119,7 +121,7 @@ export default function TapActivity({
       setCompleted(true);
 
       setTimeout(() => {
-        speakBangla(
+        speakText(
           "দারুণ! তুমি সবগুলো জিনিস চিনতে পেরেছো।",
         );
       }, 450);
@@ -145,7 +147,7 @@ export default function TapActivity({
 
         <View style={styles.headerCopy}>
           <Text style={styles.headerEyebrow}>
-            TAP QUEST
+            চাপ দিয়ে শিখি
           </Text>
           <Text
             style={[
@@ -193,7 +195,7 @@ export default function TapActivity({
               ●
             </Text>
             <Text style={styles.guideBadgeText}>
-              MIMI GUIDE
+              মিমি গাইড
             </Text>
           </View>
         </View>
@@ -225,7 +227,7 @@ export default function TapActivity({
               accessibilityRole="button"
               accessibilityLabel="নির্দেশনা আবার শুনি"
               onPress={() =>
-                speakBangla(data.prompt)
+                speakText(data.prompt, data.locale)
               }
               style={({ pressed }) => [
                 styles.listenButton,
@@ -243,7 +245,7 @@ export default function TapActivity({
       <View style={styles.gridHeader}>
         <View>
           <Text style={styles.gridEyebrow}>
-            FIND THEM ALL
+            সবগুলো খুঁজে নাও
           </Text>
           <Text style={styles.gridTitle}>
             সব কার্ডে চাপ দাও
@@ -349,7 +351,7 @@ export default function TapActivity({
           <View style={styles.infoCopy}>
             <Text style={styles.infoLabel}>
               {completed
-                ? "MISSION CLEARED"
+                ? "সবগুলো পেয়েছি"
                 : activeItem.label}
             </Text>
             <Text style={styles.infoText}>

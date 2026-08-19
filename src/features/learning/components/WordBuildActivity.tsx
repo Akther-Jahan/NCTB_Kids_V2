@@ -34,6 +34,7 @@ type Props = {
       prompt: string;
       letters: string[];
       answer: string;
+      locale?: string;
     };
   };
   attempts?: number;
@@ -153,6 +154,7 @@ export default function WordBuildActivity({
     const timer = setTimeout(() => {
       void speakLearningVoice(
         data.prompt || "অক্ষরগুলো সাজিয়ে শব্দ তৈরি করো।",
+        { language: data.locale },
       );
     }, 350);
 
@@ -246,7 +248,7 @@ export default function WordBuildActivity({
 
       next[targetSlot] = tileIndex;
       applySlots(next);
-      void speakLearningVoice(data.letters[tileIndex]);
+      void speakLearningVoice(data.letters[tileIndex], { language: data.locale });
     },
     [applySlots, completed, data.letters, slots, tileCount],
   );
@@ -291,7 +293,7 @@ export default function WordBuildActivity({
     setSelectedTile(tileIndex);
     setSelectedSlot(null);
     setWrong(false);
-    void speakLearningVoice(data.letters[tileIndex]);
+    void speakLearningVoice(data.letters[tileIndex], { language: data.locale });
   };
 
   const tapSlot = (slotIndex: number) => {
@@ -318,7 +320,7 @@ export default function WordBuildActivity({
 
     if (tileIndex !== null) {
       setSelectedSlot(slotIndex);
-      void speakLearningVoice(data.letters[tileIndex]);
+      void speakLearningVoice(data.letters[tileIndex], { language: data.locale });
     }
   };
 
@@ -450,15 +452,15 @@ export default function WordBuildActivity({
       <View style={styles.header}>
         <View style={styles.headerIcon}><Text style={styles.headerIconText}>🧩</Text></View>
         <View style={styles.headerCopy}>
-          <Text style={styles.eyebrow}>WORD BUILDER</Text>
+          <Text style={styles.eyebrow}>শব্দ বানাই</Text>
           <Text style={styles.title}>{activity.title ?? "শব্দ বানাই"}</Text>
         </View>
         <View style={styles.attemptBadge}>
-          <Text style={styles.attemptLabel}>TRY</Text>
+          <Text style={styles.attemptLabel}>চেষ্টা</Text>
           <Text style={styles.attemptValue}>{Math.min(localAttempts + 1, limit)}/{limit}</Text>
         </View>
         <Pressable
-          onPress={() => void speakLearningVoice(data.answer)}
+          onPress={() => void speakLearningVoice(data.answer, { language: data.locale })}
           style={styles.wordVoiceButton}
         >
           <Text style={styles.wordVoiceText}>🔊 শব্দ শুনি</Text>
@@ -471,7 +473,7 @@ export default function WordBuildActivity({
 
       {continueUnlocked && !completed ? (
         <View style={styles.unlockedBanner}>
-          <Text style={styles.unlockedText}>✓ Next is unlocked. You can keep practicing.</Text>
+          <Text style={styles.unlockedText}>✓ পরের ধাপ খুলে গেছে। চাইলে আরও অনুশীলন করো।</Text>
         </View>
       ) : null}
 
@@ -484,7 +486,7 @@ export default function WordBuildActivity({
           <Text style={styles.promptLabel}>তোমার mission</Text>
           <Text style={styles.promptText}>{data.prompt}</Text>
           <Pressable
-            onPress={() => void speakLearningVoice(data.prompt)}
+            onPress={() => void speakLearningVoice(data.prompt, { language: data.locale })}
             style={styles.listenCircle}
           >
             <Text>🔊</Text>
@@ -494,7 +496,7 @@ export default function WordBuildActivity({
 
       <View style={styles.sectionHeader}>
         <View>
-          <Text style={styles.sectionEyebrow}>YOUR WORD</Text>
+          <Text style={styles.sectionEyebrow}>তোমার শব্দ</Text>
           <Text style={styles.sectionTitle}>অক্ষর বসাও বা জায়গা বদলাও</Text>
         </View>
         <Text style={styles.counter}>{filledCount}/{tileCount}</Text>
@@ -568,7 +570,7 @@ export default function WordBuildActivity({
 
       <View style={styles.sectionHeader}>
         <View>
-          <Text style={styles.sectionEyebrow}>LETTER TILES</Text>
+          <Text style={styles.sectionEyebrow}>অক্ষরের টুকরা</Text>
           <Text style={styles.sectionTitle}>যে অক্ষর লাগবে সেটি নাও</Text>
         </View>
       </View>

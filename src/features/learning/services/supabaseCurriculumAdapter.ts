@@ -14,6 +14,42 @@ type AdapterOptions = {
   chapterIcon?: string;
 };
 
+function defaultLocaleForSubject(subjectId: string) {
+  return subjectId === "english" ? "en-US" : "bn-BD";
+}
+
+function cleanText(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    const clean = String(value ?? "").trim();
+    if (clean) return clean;
+  }
+
+  return "";
+}
+
+function localizedText(
+  subjectId: string,
+  bangla: string | null | undefined,
+  english: string | null | undefined,
+  fallback = "",
+) {
+  if (subjectId === "english") {
+    return cleanText(english, bangla, fallback);
+  }
+
+  return cleanText(bangla, english, fallback);
+}
+
+function resolvePayloadLocale(
+  subjectId: string,
+  payload: Record<string, unknown>,
+) {
+  const locale = payload.locale;
+  return typeof locale === "string" && locale.trim()
+    ? locale.trim()
+    : defaultLocaleForSubject(subjectId);
+}
+
 export function adaptSupabaseChapter(
   chapter: SupabaseCurriculumChapter,
   options: AdapterOptions = {},
@@ -28,8 +64,20 @@ export function adaptSupabaseChapter(
 
   return {
     id: chapter.id,
-    title: chapter.title_bn,
-    subtitle: chapter.summary_bn ?? `পাঠ ${chapter.chapter_number}`,
+    title: localizedText(
+      chapter.subject_id,
+      chapter.title_bn,
+      chapter.title_en,
+      `পাঠ ${chapter.chapter_number}`,
+    ),
+    subtitle: localizedText(
+      chapter.subject_id,
+      chapter.summary_bn,
+      chapter.summary_en,
+      chapter.subject_id === "english"
+        ? `Lesson ${chapter.chapter_number}`
+        : `পাঠ ${chapter.chapter_number}`,
+    ),
     icon: options.chapterIcon ?? "📘",
     nextChapterId: options.nextChapterId,
     activities,
@@ -40,19 +88,41 @@ function adaptActivity(
   chapter: SupabaseCurriculumChapter,
   activity: SupabaseLessonActivity,
 ): Activity[] {
-  const title =
-    activity.title_bn ?? activity.title_en ?? "শেখার কাজ";
-  const instruction =
-    activity.instruction_bn ?? activity.instruction_en ?? "";
+  const subjectId = chapter.subject_id;
+  const locale = resolvePayloadLocale(
+    subjectId,
+    activity.payload as unknown as Record<string, unknown>,
+  );
+  const title = localizedText(
+    subjectId,
+    activity.title_bn,
+    activity.title_en,
+    subjectId === "english" ? "Learning activity" : "শেখার কাজ",
+  );
+  const instruction = localizedText(
+    subjectId,
+    activity.instruction_bn,
+    activity.instruction_en,
+    "",
+  );
 
   switch (activity.activity_type) {
     case "story_snippet":
       return activity.payload.slides.flatMap(
         (slide, index): Activity[] => {
-          const text = (
-            slide.text_bn || slide.speech_bn || ""
-          ).trim();
-          if (!text) return [];
+          const visibleText = cleanText(
+            slide.text,
+            slide.text_bn,
+            slide.speech,
+            slide.speech_bn,
+          );
+          const speechText = cleanText(
+            slide.speech,
+            slide.speech_bn,
+            visibleText,
+          );
+
+          if (!visibleText && !slide.image_url) return [];
 
           return [
             {
@@ -60,7 +130,10 @@ function adaptActivity(
               type: "snippet",
               title,
               imageEmoji: slide.emoji ?? "📖",
-              lines: [text],
+              lines: visibleText ? [visibleText] : [],
+              speechText: speechText || undefined,
+              imageUrl: slide.image_url || undefined,
+              locale,
             },
           ];
         },
@@ -84,16 +157,35 @@ function adaptActivity(
     case "audio_lesson":
       return activity.payload.items.flatMap(
         (item, index): Activity[] => {
-          const text = item.text_bn.trim();
+          const text = cleanText(item.text, item.text_bn);
           if (!text) return [];
+
+          const itemId = `${activity.id}-${item.id || index + 1}`;
+
+          if (activity.payload.mode === "listen") {
+            return [
+              {
+                id: itemId,
+                type: "audio_story",
+                title,
+                text,
+                audio: item.audio_url || undefined,
+                locale,
+                imageUrl: item.image_url || undefined,
+              },
+            ];
+          }
 
           return [
             {
-              id: `${activity.id}-${item.id || index + 1}`,
+              id: itemId,
               type: "voice",
               prompt: instruction || title,
               word: text,
               emoji: item.emoji ?? "🎤",
+              locale,
+              imageUrl: item.image_url || undefined,
+              audioUrl: item.audio_url || undefined,
             },
           ];
         },
@@ -107,18 +199,35 @@ function adaptActivity(
               type: "video",
               title,
               url: activity.payload.video_url,
+              autoplay: Boolean(activity.payload.autoplay),
             },
           ]
         : [];
 
     case "flashcard": {
       const cards = activity.payload.cards
-        .map((card) => ({
-          emoji: card.emoji ?? "🖼️",
-          word: card.word_bn,
-          imageUrl: card.image_url,
-        }))
-        .filter((card) => card.word.trim().length > 0);
+        .filter((card) =>
+          Boolean(
+            cleanText(card.text, card.word_bn, card.speech, card.speech_bn) ||
+              card.image_url ||
+              card.emoji,
+          ),
+        )
+        .map((card) => {
+          const word = cleanText(card.text, card.word_bn);
+          const speechText = cleanText(
+            card.speech,
+            card.speech_bn,
+            word,
+          );
+
+          return {
+            emoji: card.emoji || "🖼️",
+            word,
+            speechText: speechText || undefined,
+            imageUrl: card.image_url || undefined,
+          };
+        });
 
       return cards.length
         ? [
@@ -126,6 +235,7 @@ function adaptActivity(
               id: activity.id,
               type: "flashcard",
               prompt: instruction || title,
+              locale,
               cards,
             },
           ]
@@ -146,8 +256,8 @@ function adaptActivity(
         const pairs = activity.payload.pairs
           .map((pair, index) => ({
             id: pair.id || `${activity.id}-pair-${index + 1}`,
-            leftText: (pair.left_text ?? pair.word_bn ?? "").trim() || undefined,
-            rightText: (pair.right_text ?? "").trim() || undefined,
+            leftText: cleanText(pair.left_text, pair.word_bn) || undefined,
+            rightText: cleanText(pair.right_text) || undefined,
             leftImageUrl: pair.left_image_url || undefined,
             rightImageUrl: pair.right_image_url ?? pair.image_url ?? undefined,
             rightEmoji: pair.emoji || undefined,
@@ -165,6 +275,7 @@ function adaptActivity(
                 id: activity.id,
                 type: "universal_matching",
                 prompt: instruction || title,
+                locale,
                 pairs,
                 maxAttempts: activity.payload.max_attempts,
               },
@@ -175,7 +286,7 @@ function adaptActivity(
       const pairs = activity.payload.pairs
         .map((pair) => ({
           emoji: pair.emoji ?? "🖼️",
-          word: pair.word_bn ?? pair.left_text ?? "",
+          word: cleanText(pair.word_bn, pair.left_text),
         }))
         .filter((pair) => pair.word.trim().length > 0);
 
@@ -185,6 +296,7 @@ function adaptActivity(
               id: activity.id,
               type: "matching",
               prompt: instruction || title,
+              locale,
               pairs,
               maxAttempts: activity.payload.max_attempts,
             },
@@ -197,18 +309,27 @@ function adaptActivity(
         chapter.quiz_questions,
         activity.id,
         activity.payload.max_attempts,
+        subjectId,
+        locale,
       );
 
     case "tap": {
       const items = activity.payload.items
-        .map((item, index) => ({
-          id: item.id || `${activity.id}-item-${index + 1}`,
-          emoji: item.emoji ?? "🖼️",
-          label: item.label_bn,
-          description: item.description_bn ?? item.label_bn,
-          imageUrl: item.image_url,
-        }))
-        .filter((item) => item.label.trim().length > 0);
+        .map((item, index) => {
+          const label = cleanText(item.label, item.label_bn);
+          return {
+            id: item.id || `${activity.id}-item-${index + 1}`,
+            emoji: item.emoji ?? "🖼️",
+            label,
+            description: cleanText(
+              item.description,
+              item.description_bn,
+              label,
+            ),
+            imageUrl: item.image_url || undefined,
+          };
+        })
+        .filter((item) => Boolean(item.label || item.imageUrl || item.emoji));
 
       return items.length
         ? [
@@ -217,6 +338,7 @@ function adaptActivity(
               type: "tap",
               prompt:
                 activity.payload.prompt || instruction || title,
+              locale,
               items,
             },
           ]
@@ -236,12 +358,23 @@ function adaptActivity(
               title,
               imageEmoji: activity.payload.imageEmoji ?? "📖",
               lines,
+              locale,
             },
           ]
         : [];
     }
 
-    case "letter":
+    case "letter": {
+      const examples = (activity.payload.examples ?? [])
+        .filter((item) =>
+          Boolean(cleanText(item.word, item.word_bn) || item.image_url || item.emoji),
+        )
+        .map((item) => ({
+          emoji: item.emoji || "🖼️",
+          word: cleanText(item.word, item.word_bn),
+          imageUrl: item.image_url || undefined,
+        }));
+
       return [
         {
           id: activity.id,
@@ -249,14 +382,11 @@ function adaptActivity(
           letter: activity.payload.letter,
           sound:
             activity.payload.sound ?? activity.payload.letter,
-          examples: (activity.payload.examples ?? []).map(
-            (item) => ({
-              emoji: item.emoji ?? "🖼️",
-              word: item.word_bn,
-            }),
-          ),
+          locale,
+          examples,
         },
       ];
+    }
 
     case "word_build":
       return [
@@ -266,6 +396,7 @@ function adaptActivity(
           prompt: instruction || title,
           letters: activity.payload.letters,
           answer: activity.payload.answer,
+          locale,
           maxAttempts: activity.payload.max_attempts,
         },
       ];
@@ -276,32 +407,50 @@ function adaptActivity(
           id: activity.id,
           type: "picture_choice",
           question: activity.payload.question,
+          locale,
           options: activity.payload.options.map((item) => ({
-            emoji: item.emoji ?? "🖼️",
-            label: item.label_bn,
-            imageUrl: item.image_url,
+            emoji: item.emoji ?? "",
+            label: cleanText(item.label, item.label_bn),
+            imageUrl: item.image_url || undefined,
           })),
           answer: activity.payload.answer,
           maxAttempts: activity.payload.max_attempts,
         },
       ];
 
-    case "drag_game":
-      return [
-        {
-          id: activity.id,
-          type: "drag_game",
-          prompt:
-            activity.payload.prompt || instruction || title,
-          items: activity.payload.items.map((item) => ({
-            emoji: item.emoji ?? item.label_bn ?? "🖼️",
-            target: item.target,
-          })),
-        },
-      ];
+    case "drag_game": {
+      const items = activity.payload.items
+        .map((item) => ({
+          emoji: item.emoji ?? "🖼️",
+          label: cleanText(item.label, item.label_bn) || undefined,
+          imageUrl: item.image_url || undefined,
+          target: cleanText(item.target),
+        }))
+        .filter((item) =>
+          Boolean(item.target && (item.label || item.imageUrl || item.emoji)),
+        );
+
+      return items.length
+        ? [
+            {
+              id: activity.id,
+              type: "drag_game",
+              prompt:
+                activity.payload.prompt || instruction || title,
+              locale,
+              items,
+            },
+          ]
+        : [];
+    }
 
     case "puzzle":
-      return adaptPuzzle(activity.id, activity.payload, instruction || title);
+      return adaptPuzzle(
+        activity.id,
+        activity.payload,
+        instruction || title,
+        locale,
+      );
 
     default:
       return [];
@@ -312,6 +461,7 @@ function adaptPuzzle(
   activityId: string,
   payload: PuzzlePayload,
   fallbackPrompt: string,
+  locale: string,
 ): Activity[] {
   const prompt = payload.prompt || fallbackPrompt;
 
@@ -331,6 +481,7 @@ function adaptPuzzle(
           prompt: [prompt, payload.pattern]
             .filter(Boolean)
             .join("\n"),
+          locale,
           options,
           answer,
           hint: payload.hint ?? "খালি জায়গার অক্ষরটি আবার দেখো।",
@@ -352,6 +503,7 @@ function adaptPuzzle(
           id: activityId,
           type: "word_build",
           prompt,
+          locale,
           letters: words.map((word) => `${word} `),
           answer: correctOrder.map((word) => `${word} `).join(""),
           maxAttempts: payload.max_attempts,
@@ -389,6 +541,7 @@ function adaptPuzzle(
           type: "universal_puzzle",
           mode: "category_sort",
           prompt,
+          locale,
           voiceText: payload.voice_text,
           hint: payload.hint,
           maxAttempts: payload.max_attempts,
@@ -430,6 +583,7 @@ function adaptPuzzle(
           type: "universal_puzzle",
           mode: payload.mode,
           prompt,
+          locale,
           voiceText: payload.voice_text,
           hint: payload.hint,
           maxAttempts: payload.max_attempts,
@@ -465,7 +619,9 @@ function adaptPuzzle(
 function adaptQuizQuestions(
   questions: SupabaseQuizQuestion[],
   activityId: string,
-  maxAttempts?: number,
+  maxAttempts: number | undefined,
+  subjectId: string,
+  locale: string,
 ): Activity[] {
   const linkedQuestions = questions.filter(
     (question) => question.activity_id === activityId,
@@ -485,18 +641,40 @@ function adaptQuizQuestions(
         return [];
       }
 
+      const optionLabels = options.map((option) =>
+        localizedText(
+          subjectId,
+          option.label_bn,
+          option.label_en,
+          "",
+        ),
+      );
+
+      if (optionLabels.some((option) => !option)) {
+        return [];
+      }
+
       return [
         {
           id: question.id,
           type: "quiz",
-          question: question.question_bn,
-          options: options.map(
-            (option) =>
-              option.label_bn ?? option.label_en ?? "",
+          question: localizedText(
+            subjectId,
+            question.question_bn,
+            question.question_en,
+            "",
           ),
+          locale,
+          options: optionLabels,
           answer: correctAnswer,
-          hint:
-            question.explanation_bn ?? "আবার চেষ্টা করো।",
+          hint: localizedText(
+            subjectId,
+            question.explanation_bn,
+            question.explanation_en,
+            subjectId === "english"
+              ? "Try again."
+              : "আবার চেষ্টা করো।",
+          ),
           maxAttempts,
         },
       ];

@@ -96,8 +96,8 @@ function activityMaxAttempts(activity: Activity) {
   }
 }
 
-function requiresCompletion(activity: Activity) {
-  return activity.type !== "audio_story";
+function requiresCompletion(_activity: Activity) {
+  return true;
 }
 
 function activityInstruction(activity: Activity) {
@@ -123,6 +123,28 @@ function activityInstruction(activity: Activity) {
   }
 }
 
+function activityLocale(activity: Activity) {
+  switch (activity.type) {
+    case "audio_story":
+    case "snippet":
+    case "letter":
+    case "word_build":
+    case "tap":
+    case "flashcard":
+    case "voice":
+    case "matching":
+    case "universal_matching":
+    case "picture_choice":
+    case "drag_game":
+    case "universal_puzzle":
+    case "choice":
+    case "quiz":
+      return activity.locale;
+    default:
+      return undefined;
+  }
+}
+
 function activityLabel(activity: Activity) {
   switch (activity.type) {
     case "intro":
@@ -132,7 +154,9 @@ function activityLabel(activity: Activity) {
     case "audio_story":
       return ["🎧", "শুনে শিখি"] as const;
     case "image_lesson":
-      return ["🖼️", "ছবি দেখে শিখি"] as const;
+      return activity.imageUrl
+        ? (["🖼️", "ছবি দেখে শিখি"] as const)
+        : (["✨", "শিখে নিই"] as const);
     case "video":
       return ["▶️", "ভিডিও"] as const;
     case "letter":
@@ -148,9 +172,11 @@ function activityLabel(activity: Activity) {
     case "matching":
       return ["🔗", "মিল খুঁজি"] as const;
     case "universal_matching":
-      return ["🔗", "Matching"] as const;
+      return ["🔗", "মিল খুঁজি"] as const;
     case "picture_choice":
-      return ["🔍", "ছবি চিনি"] as const;
+      return activity.options.some((option) => option.imageUrl || option.emoji)
+        ? (["🔍", "ছবি চিনি"] as const)
+        : (["✅", "সঠিকটি বেছে নিই"] as const);
     case "drag_game":
       return ["🎯", "খেলা"] as const;
     case "universal_puzzle":
@@ -194,6 +220,7 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
   const [finished, setFinished] = useState(false);
   const [retryActivityIds, setRetryActivityIds] = useState<string[] | null>(null);
   const [result, setResult] = useState({ score: 100, summary: EMPTY_SUMMARY });
+  const [cloudSyncPending, setCloudSyncPending] = useState(false);
 
   const allActivities = chapter?.activities ?? [];
   const quizIds = useMemo(
@@ -320,6 +347,8 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
       : 100;
     const chapterBonusStars = score >= 90 ? 3 : score >= 70 ? 2 : 1;
 
+    setCloudSyncPending(false);
+
     if (student && isSupabaseConfigured && !student.id.startsWith("local-")) {
       try {
         if (allQuizCorrect) {
@@ -337,11 +366,8 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
         }
       } catch (syncError) {
         const message = syncError instanceof Error ? syncError.message : String(syncError);
-        console.error("Cloud progress save failed:", message);
-        Alert.alert(
-          "Cloud progress save হয়নি",
-          `${message}\n\nLocal result রাখা হয়েছে। পরে cloud sync আবার চেষ্টা হবে।`,
-        );
+        if (__DEV__) console.log("Cloud progress save deferred:", message);
+        setCloudSyncPending(true);
       }
     }
 
@@ -442,19 +468,29 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
             <Text style={styles.resultSubtitle}>তুমি খুব সুন্দরভাবে চেষ্টা করেছো 🌟</Text>
 
             <View style={styles.resultGrid}>
-              <ResultStat label="মোট practice" value={result.summary.total} />
+              <ResultStat label="মোট অনুশীলন" value={result.summary.total} />
               <ResultStat label="সঠিক" value={result.summary.correct} />
               <ResultStat label="আবার করতে হবে" value={remaining} />
               <ResultStat label="মোট চেষ্টা" value={result.summary.totalAttempts} />
             </View>
 
             <View style={styles.masteryHeader}>
-              <Text style={styles.masteryLabel}>Practice mastery</Text>
+              <Text style={styles.masteryLabel}>অনুশীলনের দক্ষতা</Text>
               <Text style={styles.masteryValue}>{result.score}%</Text>
             </View>
             <View style={styles.masteryTrack}>
               <View style={[styles.masteryFill, { width: `${result.score}%` }]} />
             </View>
+
+            {cloudSyncPending ? (
+              <View style={styles.cloudNote}>
+                <Text style={styles.cloudNoteIcon}>☁️</Text>
+                <View style={styles.cloudNoteCopy}>
+                  <Text style={styles.cloudNoteTitle}>ফলাফল এই ডিভাইসে রাখা হয়েছে</Text>
+                  <Text style={styles.cloudNoteText}>ইন্টারনেট সিঙ্ক পরে আবার চেষ্টা হবে। তোমার শেখা থামবে না।</Text>
+                </View>
+              </View>
+            ) : null}
 
             <Pressable
               onPress={() =>
@@ -477,12 +513,12 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
 
             {quizIds.length > 0 ? (
               <Pressable onPress={retryAllQuiz} style={styles.secondaryResultButton}>
-                <Text style={styles.secondaryResultText}>↻ পুরো Quiz আবার করি</Text>
+                <Text style={styles.secondaryResultText}>↻ পুরো কুইজ আবার করি</Text>
               </Pressable>
             ) : null}
 
             <Pressable onPress={() => navigation.goBack()} style={styles.secondaryResultButton}>
-              <Text style={styles.secondaryResultText}>📚 Chapter list-এ ফিরি</Text>
+              <Text style={styles.secondaryResultText}>📚 পাঠের তালিকায় ফিরি</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -504,12 +540,12 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
               </Pressable>
               <View style={styles.headerCopy}>
                 <Text style={styles.chapterTitle} numberOfLines={1}>
-                  {retryActivityIds ? `${chapter.title} • Practice` : chapter.title}
+                  {retryActivityIds ? `${chapter.title} • আবার অনুশীলন` : chapter.title}
                 </Text>
                 <Text style={styles.stepText}>ধাপ {step + 1} / {runActivities.length}</Text>
               </View>
               <View style={[styles.statusBadge, activityComplete && styles.statusBadgeDone]}>
-                <Text style={styles.statusText}>{activityComplete ? "✓ প্রস্তুত" : "কাজ চলছে"}</Text>
+                <Text style={styles.statusText}>{activityComplete ? "✓ প্রস্তুত" : "চলছে"}</Text>
               </View>
             </View>
             <View style={styles.progressTrack}>
@@ -529,12 +565,16 @@ export default function LessonPlayerScreenV2({ navigation, route }: ScreenProps<
               <View style={styles.activityMeta}>
                 <View style={styles.iconCircle}><Text style={styles.icon}>{icon}</Text></View>
                 <View>
-                  <Text style={styles.eyebrow}>ACTIVITY</Text>
+                  <Text style={styles.eyebrow}>শেখার কাজ</Text>
                   <Text style={styles.activityLabel}>{label}</Text>
                 </View>
               </View>
               <Pressable
-                onPress={() => void speakLearningVoice(instruction)}
+                onPress={() =>
+                  void speakLearningVoice(instruction, {
+                    language: activityLocale(activity),
+                  })
+                }
                 style={styles.listenButton}
               >
                 <Text style={styles.listenText}>🔊 শুনি</Text>
@@ -647,12 +687,35 @@ function ActivityRenderer({
     case "snippet":
       return (
         <AnimatedStoryActivity
-          activity={{ title: activity.title, data: { lines: activity.lines, buttonText: "পরেরটি 🚀" } }}
+          activity={{
+            title: activity.title,
+            data: {
+              lines: activity.lines,
+              speechText: activity.speechText,
+              imageUrl: activity.imageUrl,
+              locale: activity.locale,
+              buttonText: "পরেরটি 🚀",
+            },
+          }}
           onComplete={onComplete}
         />
       );
     case "audio_story":
-      return <AudioStoryActivity activity={{ payload: { title: activity.title, text: activity.text, audio: activity.audio } }} />;
+      return (
+        <AudioStoryActivity
+          activity={{
+            payload: {
+              title: activity.title,
+              text: activity.text,
+              audio: activity.audio,
+              locale: activity.locale,
+              imageUrl: activity.imageUrl,
+            },
+          }}
+          completed={completed}
+          onComplete={onComplete}
+        />
+      );
     case "image_lesson":
       return (
         <ImageLessonActivity
@@ -666,18 +729,42 @@ function ActivityRenderer({
         />
       );
     case "video":
-      return <VideoActivity title={activity.title} url={activity.url} completed={completed} onComplete={onComplete} />;
+      return (
+        <VideoActivity
+          title={activity.title}
+          url={activity.url}
+          autoplay={activity.autoplay}
+          completed={completed}
+          onComplete={onComplete}
+        />
+      );
     case "letter":
       return (
         <LetterActivity
-          activity={{ title: "অক্ষর শিখি", data: { letter: activity.letter, sound: activity.sound, examples: activity.examples } }}
+          activity={{
+            title: "অক্ষর শিখি",
+            data: {
+              letter: activity.letter,
+              sound: activity.sound,
+              locale: activity.locale,
+              examples: activity.examples,
+            },
+          }}
           onComplete={onComplete}
         />
       );
     case "word_build":
       return (
         <WordBuildActivity
-          activity={{ title: "শব্দ বানাই", data: { prompt: activity.prompt, letters: activity.letters, answer: activity.answer } }}
+          activity={{
+            title: "শব্দ বানাই",
+            data: {
+              prompt: activity.prompt,
+              letters: activity.letters,
+              answer: activity.answer,
+              locale: activity.locale,
+            },
+          }}
           attempts={attempts}
           maxAttempts={maxAttempts}
           onAttempt={onActivityAttempt}
@@ -685,15 +772,57 @@ function ActivityRenderer({
         />
       );
     case "tap":
-      return <TapCards activity={{ payload: { prompt: activity.prompt, items: activity.items } }} onComplete={onComplete} />;
+      return (
+        <TapCards
+          activity={{
+            payload: {
+              prompt: activity.prompt,
+              locale: activity.locale,
+              items: activity.items,
+            },
+          }}
+          onComplete={onComplete}
+        />
+      );
     case "flashcard":
-      return <FlashcardActivity activity={{ payload: { prompt: activity.prompt, cards: activity.cards } }} onComplete={onComplete} />;
+      return (
+        <FlashcardActivity
+          activity={{
+            payload: {
+              prompt: activity.prompt,
+              locale: activity.locale,
+              cards: activity.cards,
+            },
+          }}
+          onComplete={onComplete}
+        />
+      );
     case "voice":
-      return <VoiceActivity activity={{ payload: { prompt: activity.prompt, word: activity.word, emoji: activity.emoji } }} onComplete={onComplete} />;
+      return (
+        <VoiceActivity
+          activity={{
+            payload: {
+              prompt: activity.prompt,
+              word: activity.word,
+              emoji: activity.emoji,
+              locale: activity.locale,
+              imageUrl: activity.imageUrl,
+              audioUrl: activity.audioUrl,
+            },
+          }}
+          onComplete={onComplete}
+        />
+      );
     case "matching":
       return (
         <MatchingActivity
-          activity={{ payload: { prompt: activity.prompt, pairs: activity.pairs } }}
+          activity={{
+            payload: {
+              prompt: activity.prompt,
+              locale: activity.locale,
+              pairs: activity.pairs,
+            },
+          }}
           attempts={attempts}
           maxAttempts={maxAttempts}
           onAttempt={onActivityAttempt}
@@ -713,7 +842,15 @@ function ActivityRenderer({
     case "picture_choice":
       return (
         <PictureChoiceActivity
-          activity={{ title: "ছবি চিনে নেই", data: { question: activity.question, options: activity.options, answer: activity.answer } }}
+          activity={{
+            title: "ছবি চিনে নেই",
+            data: {
+              question: activity.question,
+              locale: activity.locale,
+              options: activity.options,
+              answer: activity.answer,
+            },
+          }}
           attempts={attempts}
           maxAttempts={maxAttempts}
           onAttempt={onActivityAttempt}
@@ -721,7 +858,18 @@ function ActivityRenderer({
         />
       );
     case "drag_game":
-      return <DragGameActivity activity={{ payload: { prompt: activity.prompt, items: activity.items } }} onComplete={onComplete} />;
+      return (
+        <DragGameActivity
+          activity={{
+            payload: {
+              prompt: activity.prompt,
+              locale: activity.locale,
+              items: activity.items,
+            },
+          }}
+          onComplete={onComplete}
+        />
+      );
     case "universal_puzzle":
       return (
         <UniversalPuzzleActivity
@@ -740,6 +888,7 @@ function ActivityRenderer({
           options={activity.options}
           answer={activity.answer}
           hint={activity.hint}
+          locale={activity.locale}
           maxAttempts={maxAttempts}
           result={questionResult}
           onSelectOption={onQuestionSelect}
@@ -754,6 +903,7 @@ function ActivityRenderer({
           options={activity.options}
           answer={activity.answer}
           hint={activity.hint}
+          locale={activity.locale}
           maxAttempts={maxAttempts}
           result={questionResult}
           onSelectOption={onQuestionSelect}
@@ -805,42 +955,42 @@ function ResultStat({ label, value }: { label: string; value: number }) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#F6F3F8" },
-  page: { flex: 1, backgroundColor: "#F6F3F8" },
+  safe: { flex: 1, backgroundColor: "#F8F5FB" },
+  page: { flex: 1, backgroundColor: "#F8F5FB" },
   maxWidth: { width: "100%", alignSelf: "center" },
-  top: { paddingTop: 5, paddingBottom: 9 },
+  top: { paddingTop: 6, paddingBottom: 10 },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center" },
-  closeButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  closeText: { marginTop: -3, fontSize: 30, color: "#29242C" },
+  closeButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", elevation: 2 },
+  closeText: { marginTop: -3, fontSize: 31, fontWeight: "700", color: "#29242C" },
   headerCopy: { flex: 1, alignItems: "center", marginHorizontal: 8 },
-  chapterTitle: { maxWidth: "100%", fontSize: 16, fontWeight: "900", color: "#201C22" },
-  stepText: { marginTop: 2, fontSize: 10, fontWeight: "800", color: "#817984" },
+  chapterTitle: { maxWidth: "100%", fontSize: 18, fontWeight: "900", color: "#201C22" },
+  stepText: { marginTop: 3, fontSize: 11, fontWeight: "800", color: "#817984" },
   statusBadge: { minWidth: 72, paddingHorizontal: 9, paddingVertical: 7, alignItems: "center", borderRadius: 16, backgroundColor: "#FFF0C8" },
   statusBadgeDone: { backgroundColor: "#DFF5DB" },
   statusText: { fontSize: 9, fontWeight: "900", color: "#4F4752" },
   progressTrack: { height: 8, overflow: "hidden", marginTop: 5, borderRadius: 4, backgroundColor: "#E5E1E8" },
   progressFill: { height: "100%", borderRadius: 4, backgroundColor: "#7653BD" },
   scroll: { flex: 1 },
-  scrollContent: { flexGrow: 1, paddingTop: 3, paddingBottom: 18 },
-  activityCard: { width: "100%", minHeight: 470, alignSelf: "center", padding: 16, borderWidth: 1, borderColor: "#E1DCE5", borderRadius: 27, backgroundColor: "#FFFFFF" },
+  scrollContent: { flexGrow: 1, paddingTop: 4, paddingBottom: 28 },
+  activityCard: { width: "100%", alignSelf: "center", padding: 15, borderWidth: 1, borderColor: "#E6E0E9", borderRadius: 30, backgroundColor: "#FFFFFF", elevation: 1 },
   activityHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   activityMeta: { flexDirection: "row", alignItems: "center" },
-  iconCircle: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", backgroundColor: "#EEE6FF" },
+  iconCircle: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#EEE6FF" },
   icon: { fontSize: 23 },
-  eyebrow: { marginLeft: 10, fontSize: 8, letterSpacing: 1.3, fontWeight: "900", color: "#9A919E" },
-  activityLabel: { marginTop: 2, marginLeft: 10, fontSize: 15, fontWeight: "900", color: "#2B262D" },
+  eyebrow: { marginLeft: 10, fontSize: 9, fontWeight: "900", color: "#9A919E" },
+  activityLabel: { marginTop: 2, marginLeft: 10, fontSize: 17, fontWeight: "900", color: "#2B262D" },
   listenButton: { minHeight: 39, paddingHorizontal: 11, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#E9F5FF" },
   listenText: { fontSize: 10, fontWeight: "900", color: "#2678A2" },
   divider: { height: 1, marginTop: 13, marginBottom: 16, backgroundColor: "#EEEAF0" },
-  actionsWrap: { paddingTop: 8, paddingBottom: 7 },
+  actionsWrap: { paddingTop: 9, paddingBottom: 8, borderTopWidth: 1, borderTopColor: "#ECE6EF", backgroundColor: "#F8F5FB" },
   actions: { width: "100%", minHeight: 58, alignSelf: "center", flexDirection: "row", gap: 9 },
-  backButton: { width: 102, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#D5CFD9", borderRadius: 29, backgroundColor: "#FFFFFF" },
+  backButton: { width: 104, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "#DCD5E1", borderRadius: 29, backgroundColor: "#FFFFFF" },
   backText: { fontSize: 13, fontWeight: "900", color: "#322C35" },
-  nextButton: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 29, backgroundColor: "#1A171C" },
-  nextButtonDisabled: { backgroundColor: "#C8C3CC" },
+  nextButton: { flex: 1, alignItems: "center", justifyContent: "center", borderRadius: 29, backgroundColor: "#7653BD" },
+  nextButtonDisabled: { backgroundColor: "#D2CCD6" },
   nextText: { fontSize: 15, fontWeight: "900", color: "#FFFFFF" },
   resultScroll: { flexGrow: 1, alignItems: "center", justifyContent: "center", paddingVertical: 24 },
-  resultCard: { width: "100%", alignItems: "center", padding: 22, borderRadius: 30, backgroundColor: "#FFFFFF" },
+  resultCard: { width: "100%", alignItems: "center", padding: 22, borderRadius: 32, backgroundColor: "#FFFFFF", elevation: 2 },
   resultMimi: { width: 150, height: 150 },
   resultTitle: { marginTop: 4, fontSize: 25, fontWeight: "900", color: "#2B2630" },
   resultSubtitle: { marginTop: 6, fontSize: 13, fontWeight: "700", textAlign: "center", color: "#756D79" },
@@ -853,6 +1003,11 @@ const styles = StyleSheet.create({
   masteryValue: { fontSize: 12, fontWeight: "900", color: "#7653BD" },
   masteryTrack: { width: "100%", height: 11, overflow: "hidden", marginTop: 7, borderRadius: 6, backgroundColor: "#E7E1EA" },
   masteryFill: { height: "100%", borderRadius: 6, backgroundColor: "#7653BD" },
+  cloudNote: { width: "100%", marginTop: 14, padding: 13, borderRadius: 18, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#FFF5D9" },
+  cloudNoteIcon: { fontSize: 24 },
+  cloudNoteCopy: { flex: 1 },
+  cloudNoteTitle: { fontSize: 12, fontWeight: "900", color: "#4B424F" },
+  cloudNoteText: { marginTop: 2, fontSize: 10, lineHeight: 15, fontWeight: "700", color: "#786F7C" },
   voiceButton: { minHeight: 42, marginTop: 16, paddingHorizontal: 18, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF5FF" },
   voiceButtonText: { fontSize: 12, fontWeight: "900", color: "#287DA4" },
   primaryResultButton: { width: "100%", minHeight: 54, marginTop: 16, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: "#7653BD" },

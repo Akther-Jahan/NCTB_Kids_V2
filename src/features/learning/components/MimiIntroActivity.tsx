@@ -188,7 +188,7 @@ export default function MimiIntroActivity({
 
         <View style={styles.missionCopy}>
           <Text style={styles.missionEyebrow}>
-            LEVEL 1 · NEW MISSION
+            নতুন শেখার অভিযান
           </Text>
           <Text
             style={[
@@ -236,7 +236,7 @@ export default function MimiIntroActivity({
 
           <View style={styles.guideBadge}>
             <Text style={styles.guideDot}>●</Text>
-            <Text style={styles.guideText}>MIMI GUIDE</Text>
+            <Text style={styles.guideText}>মিমি গাইড</Text>
           </View>
         </View>
       </View>
@@ -323,7 +323,7 @@ export default function MimiIntroActivity({
           </View>
 
           <View style={styles.startCopy}>
-            <Text style={styles.startEyebrow}>READY?</Text>
+            <Text style={styles.startEyebrow}>প্রস্তুত?</Text>
             <Text style={styles.startText}>মিশন শুরু করি</Text>
           </View>
 

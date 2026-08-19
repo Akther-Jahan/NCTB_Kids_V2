@@ -32,6 +32,7 @@ type Props = {
     instruction?: string;
     data: {
       question: string;
+      locale?: string;
       options: PictureOption[];
       answer: number;
     };
@@ -42,11 +43,11 @@ type Props = {
   onAttempt?: (correct: boolean) => ActivityAttemptResult;
 };
 
-function speakBangla(text: string) {
+function speakText(text: string, language = "bn-BD") {
   void Speech.stop();
 
   Speech.speak(text, {
-    language: "bn-BD",
+    language,
     rate: 0.74,
     pitch: 1.05,
     volume: 1,
@@ -118,7 +119,7 @@ export default function PictureChoiceActivity({
     entranceAnimation.start();
 
     const timer = setTimeout(() => {
-      speakBangla(data.question);
+      speakText(data.question, data.locale);
     }, 350);
 
     if (
@@ -231,7 +232,7 @@ export default function PictureChoiceActivity({
 
       runSuccessAnimation();
 
-      speakBangla(
+      speakText(
         "দারুণ! তুমি সঠিক ছবি খুঁজে পেয়েছো।",
       );
 
@@ -247,7 +248,7 @@ export default function PictureChoiceActivity({
 
     runWrongAnimation();
 
-    speakBangla(
+    speakText(
       unlocked
         ? "এই ছবিটি সঠিক নয়। পরের ধাপ খুলে গেছে। চাইলে আবার চেষ্টা করো।"
         : "এই ছবিটি সঠিক নয়। আবার চেষ্টা করো।",
@@ -273,7 +274,7 @@ export default function PictureChoiceActivity({
 
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>
-            PICTURE HUNT
+            ছবি খুঁজি
           </Text>
 
           <Text
@@ -315,7 +316,7 @@ export default function PictureChoiceActivity({
 
       {continueUnlocked && !completed ? (
         <View style={styles.unlockedBanner}>
-          <Text style={styles.unlockedText}>✓ Next is unlocked. You can keep practicing.</Text>
+          <Text style={styles.unlockedText}>✓ পরের ধাপ খুলে গেছে। চাইলে আরও অনুশীলন করো।</Text>
         </View>
       ) : null}
 
@@ -340,7 +341,7 @@ export default function PictureChoiceActivity({
           </Text>
 
           <Text style={styles.guideText}>
-            PICTURE COACH
+            মিমি গাইড
           </Text>
         </View>
 
@@ -370,7 +371,7 @@ export default function PictureChoiceActivity({
               <Text
                 style={styles.questionLabel}
               >
-                FIND THE ANSWER
+                সঠিক ছবি খুঁজে নাও
               </Text>
 
               <Text
@@ -384,7 +385,7 @@ export default function PictureChoiceActivity({
               accessibilityRole="button"
               accessibilityLabel="প্রশ্নটি শুনি"
               onPress={() =>
-                speakBangla(data.question)
+                speakText(data.question, data.locale)
               }
               style={({ pressed }) => [
                 styles.listenButton,
@@ -420,7 +421,7 @@ export default function PictureChoiceActivity({
       <View style={styles.optionHeader}>
         <View>
           <Text style={styles.eyebrow}>
-            CHOOSE A PICTURE
+            একটি ছবি বেছে নাও
           </Text>
 
           <Text style={styles.optionTitle}>
@@ -430,7 +431,7 @@ export default function PictureChoiceActivity({
 
         <View style={styles.optionBadge}>
           <Text style={styles.optionBadgeText}>
-            {data.options.length} CARDS
+            {data.options.length}টি অপশন
           </Text>
         </View>
       </View>
@@ -473,35 +474,32 @@ export default function PictureChoiceActivity({
                     styles.optionPressed,
                 ]}
               >
-                <View
-                  style={[
-                    styles.emojiCircle,
-
-                    isWrong &&
-                      styles.emojiCircleWrong,
-
-                    isCorrect &&
-                      styles.emojiCircleCorrect,
-                  ]}
-                >
-                  {option.imageUrl ? (
-                    <Image
-                      source={{ uri: option.imageUrl }}
-                      style={styles.optionImage}
-                      resizeMode="contain"
-                    />
-                  ) : (
-                    <Text
-                      style={[
-                        styles.optionEmoji,
-                        isTablet &&
-                          styles.optionEmojiTablet,
-                      ]}
-                    >
-                      {option.emoji || "⭐"}
-                    </Text>
-                  )}
-                </View>
+                {option.imageUrl || option.emoji ? (
+                  <View
+                    style={[
+                      styles.emojiCircle,
+                      isWrong && styles.emojiCircleWrong,
+                      isCorrect && styles.emojiCircleCorrect,
+                    ]}
+                  >
+                    {option.imageUrl ? (
+                      <Image
+                        source={{ uri: option.imageUrl }}
+                        style={styles.optionImage}
+                        resizeMode="contain"
+                      />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.optionEmoji,
+                          isTablet && styles.optionEmojiTablet,
+                        ]}
+                      >
+                        {option.emoji}
+                      </Text>
+                    )}
+                  </View>
+                ) : null}
 
                 <Text
                   style={[
@@ -567,7 +565,7 @@ export default function PictureChoiceActivity({
             <Text
               style={styles.feedbackLabel}
             >
-              TRY AGAIN
+              আবার চেষ্টা
             </Text>
 
             <Text style={styles.feedbackText}>
@@ -588,7 +586,7 @@ export default function PictureChoiceActivity({
 
           <View style={styles.successCopy}>
             <Text style={styles.successLabel}>
-              PICTURE FOUND
+              সঠিক ছবি পেয়েছো
             </Text>
 
             <Text style={styles.successTitle}>

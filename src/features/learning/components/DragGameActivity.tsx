@@ -5,6 +5,7 @@ import React, {
 } from "react";
 import {
   Animated,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -17,6 +18,8 @@ import MimiCharacter from "./MimiCharacter";
 
 type DragItem = {
   emoji: string;
+  label?: string;
+  imageUrl?: string;
   target: string;
 };
 
@@ -24,17 +27,18 @@ type Props = {
   activity: {
     payload: {
       prompt: string;
+      locale?: string;
       items: DragItem[];
     };
   };
   onComplete: () => void;
 };
 
-function speakBangla(text: string) {
+function speakText(text: string, language = "bn-BD") {
   void Speech.stop();
 
   Speech.speak(text, {
-    language: "bn-BD",
+    language,
     rate: 0.74,
     pitch: 1.05,
     volume: 1,
@@ -105,7 +109,7 @@ export default function DragGameActivity({
     pulseAnimation.start();
 
     const timer = setTimeout(() => {
-      speakBangla(data.prompt);
+      speakText(data.prompt, data.locale);
     }, 350);
 
     if (
@@ -159,7 +163,7 @@ export default function DragGameActivity({
     index: number,
   ) => {
     if (doneIndices.includes(index)) {
-      speakBangla(
+      speakText(
         `${item.target} ইতোমধ্যে সম্পন্ন হয়েছে।`,
       );
 
@@ -175,8 +179,9 @@ export default function DragGameActivity({
 
     setDoneIndices(nextDoneIndices);
 
-    speakBangla(
-      `${item.emoji} ${item.target} এ পৌঁছে গেছে।`,
+    speakText(
+      item.label || item.target || item.emoji,
+      data.locale,
     );
 
     if (
@@ -188,7 +193,7 @@ export default function DragGameActivity({
       setCompleted(true);
 
       setTimeout(() => {
-        speakBangla(
+        speakText(
           "দারুণ! সবগুলো জিনিস সঠিক জায়গায় পৌঁছে গেছে।",
         );
       }, 300);
@@ -216,7 +221,7 @@ export default function DragGameActivity({
 
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>
-            MOVE MISSION
+            সাজানোর খেলা
           </Text>
 
           <Text
@@ -267,7 +272,7 @@ export default function DragGameActivity({
           </Text>
 
           <Text style={styles.guideText}>
-            MOVE COACH
+            মিমি গাইড
           </Text>
         </View>
 
@@ -280,7 +285,7 @@ export default function DragGameActivity({
 
           <View style={styles.promptCopy}>
             <Text style={styles.promptLabel}>
-              তোমার mission
+              তোমার কাজ
             </Text>
 
             <Text style={styles.promptText}>
@@ -292,7 +297,7 @@ export default function DragGameActivity({
             accessibilityRole="button"
             accessibilityLabel="নির্দেশনা শুনি"
             onPress={() =>
-              speakBangla(data.prompt)
+              speakText(data.prompt, data.locale)
             }
             style={({ pressed }) => [
               styles.listenButton,
@@ -309,11 +314,11 @@ export default function DragGameActivity({
       <View style={styles.missionHeader}>
         <View>
           <Text style={styles.eyebrow}>
-            TAP TO MOVE
+            চাপ দিয়ে পাঠাও
           </Text>
 
           <Text style={styles.missionTitle}>
-            প্রতিটি item পৌঁছে দাও
+            প্রতিটি কার্ড সঠিক জায়গায় পাঠাও
           </Text>
         </View>
 
@@ -350,7 +355,7 @@ export default function DragGameActivity({
             >
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`${item.emoji} ${item.target} এ পৌঁছে দাও`}
+                accessibilityLabel={`${item.label || item.emoji} ${item.target} এ পৌঁছে দাও`}
                 onPress={() =>
                   completeItem(item, index)
                 }
@@ -377,16 +382,30 @@ export default function DragGameActivity({
                       styles.emojiCircleDone,
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.itemEmoji,
-                      isTablet &&
-                        styles.itemEmojiTablet,
-                    ]}
-                  >
-                    {item.emoji || "⭐"}
-                  </Text>
+                  {item.imageUrl ? (
+                    <Image
+                      source={{ uri: item.imageUrl }}
+                      style={styles.itemImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.itemEmoji,
+                        isTablet &&
+                          styles.itemEmojiTablet,
+                      ]}
+                    >
+                      {item.emoji || "⭐"}
+                    </Text>
+                  )}
                 </View>
+
+                {item.label ? (
+                  <Text style={styles.itemLabel} numberOfLines={2}>
+                    {item.label}
+                  </Text>
+                ) : null}
 
                 <View style={styles.routeArea}>
                   <View
@@ -468,7 +487,7 @@ export default function DragGameActivity({
 
           <View style={styles.successCopy}>
             <Text style={styles.successLabel}>
-              MISSION CLEARED
+              সবগুলো ঠিক হয়েছে
             </Text>
 
             <Text style={styles.successTitle}>
@@ -476,7 +495,7 @@ export default function DragGameActivity({
             </Text>
 
             <Text style={styles.successText}>
-              তুমি move mission সম্পন্ন করেছো
+              তুমি সাজানোর খেলাটি সম্পন্ন করেছো
             </Text>
           </View>
 
@@ -494,11 +513,11 @@ export default function DragGameActivity({
 
           <View style={styles.hintCopy}>
             <Text style={styles.hintLabel}>
-              HOW TO PLAY
+              কীভাবে খেলবে
             </Text>
 
             <Text style={styles.hintText}>
-              একটি item-এ চাপ দিলে সেটি target
+              একটি কার্ডে চাপ দিলে সেটি সঠিক
               জায়গায় পৌঁছে যাবে।
             </Text>
           </View>
@@ -768,6 +787,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#D1EFD8",
   },
 
+  itemImage: {
+    width: 58,
+    height: 58,
+    borderRadius: 14,
+  },
+  itemLabel: {
+    maxWidth: 92,
+    marginHorizontal: 8,
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#3A3042",
+    textAlign: "center",
+  },
   itemEmoji: {
     fontSize: 40,
   },

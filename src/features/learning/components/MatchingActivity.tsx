@@ -29,6 +29,7 @@ type Props = {
   activity: {
     payload: {
       prompt: string;
+      locale?: string;
       pairs: Pair[];
     };
   };
@@ -38,11 +39,11 @@ type Props = {
   onAttempt?: (correct: boolean) => ActivityAttemptResult;
 };
 
-function speakBangla(text: string) {
+function speakText(text: string, language = "bn-BD") {
   void Speech.stop();
 
   Speech.speak(text, {
-    language: "bn-BD",
+    language,
     rate: 0.74,
     pitch: 1.05,
   });
@@ -105,7 +106,7 @@ export default function MatchingActivity({
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      speakBangla(data.prompt);
+      speakText(data.prompt, data.locale);
     }, 350);
 
     if (
@@ -190,7 +191,7 @@ export default function MatchingActivity({
       setMatched(nextMatched);
       setWrong(false);
 
-      speakBangla(
+      speakText(
         `সঠিক মিল। ${data.pairs[pictureIndex].word}`,
       );
 
@@ -204,7 +205,7 @@ export default function MatchingActivity({
         setContinueUnlocked(false);
 
         setTimeout(() => {
-          speakBangla(
+          speakText(
             "দারুণ! সবগুলো মিল সঠিক হয়েছে।",
           );
         }, 300);
@@ -216,7 +217,7 @@ export default function MatchingActivity({
       setWrong(true);
       runWrongAnimation();
 
-      speakBangla(
+      speakText(
         unlocked
           ? "মিল হয়নি। পরের ধাপ খুলে গেছে। চাইলে আবার চেষ্টা করো।"
           : "মিল হয়নি। আবার চেষ্টা করো।",
@@ -235,8 +236,9 @@ export default function MatchingActivity({
     setWrong(false);
     setSelectedPicture(index);
 
-    speakBangla(
+    speakText(
       data.pairs[index].word,
+      data.locale,
     );
 
     if (selectedWord !== null) {
@@ -255,8 +257,9 @@ export default function MatchingActivity({
     setWrong(false);
     setSelectedWord(index);
 
-    speakBangla(
+    speakText(
       wordChoices[index].word,
+      data.locale,
     );
 
     if (selectedPicture !== null) {
@@ -279,7 +282,7 @@ export default function MatchingActivity({
 
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>
-            MATCH BATTLE
+            মিল খুঁজি
           </Text>
 
           <Text
@@ -336,7 +339,7 @@ export default function MatchingActivity({
           </Text>
 
           <Text style={styles.guideText}>
-            MATCH COACH
+            মিমি গাইড
           </Text>
         </View>
 
@@ -357,7 +360,7 @@ export default function MatchingActivity({
 
           <Pressable
             onPress={() =>
-              speakBangla(data.prompt)
+              speakText(data.prompt, data.locale)
             }
             style={styles.listenButton}
           >
@@ -530,10 +533,10 @@ export default function MatchingActivity({
           <Text style={styles.feedbackLabel}>
             {matched.length ===
             data.pairs.length
-              ? "MISSION CLEARED"
+              ? "সবগুলো মিলেছে"
               : wrong
-                ? "TRY AGAIN"
-                : "HOW TO PLAY"}
+                ? "আবার চেষ্টা"
+                : "কীভাবে খেলবে"}
           </Text>
 
           <Text style={styles.feedbackText}>

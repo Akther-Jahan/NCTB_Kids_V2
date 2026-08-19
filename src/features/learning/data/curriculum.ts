@@ -17,6 +17,8 @@ export type AudioStoryActivity = {
   title: string;
   text: string;
   audio?: string;
+  locale?: string;
+  imageUrl?: string;
 };
 
 export type ImageLessonActivity = {
@@ -35,6 +37,7 @@ export type VideoLessonActivity = {
   type: "video";
   title: string;
   url: string;
+  autoplay?: boolean;
 };
 
 export type SnippetActivity = {
@@ -43,6 +46,9 @@ export type SnippetActivity = {
   title: string;
   imageEmoji: string;
   lines: string[];
+  speechText?: string;
+  imageUrl?: string;
+  locale?: string;
 };
 
 export type LetterActivity = {
@@ -50,9 +56,11 @@ export type LetterActivity = {
   type: "letter";
   letter: string;
   sound: string;
+  locale?: string;
   examples: {
     emoji: string;
     word: string;
+    imageUrl?: string;
   }[];
 };
 
@@ -62,6 +70,7 @@ export type WordBuildActivity = {
   prompt: string;
   letters: string[];
   answer: string;
+  locale?: string;
   maxAttempts?: number;
 };
 
@@ -69,6 +78,7 @@ export type TapActivity = {
   id: string;
   type: "tap";
   prompt: string;
+  locale?: string;
   items: {
     id: string;
     emoji: string;
@@ -82,9 +92,11 @@ export type FlashcardActivity = {
   id: string;
   type: "flashcard";
   prompt: string;
+  locale?: string;
   cards: {
     emoji: string;
     word: string;
+    speechText?: string;
     imageUrl?: string;
   }[];
 };
@@ -95,12 +107,16 @@ export type VoiceActivity = {
   prompt: string;
   word: string;
   emoji: string;
+  locale?: string;
+  imageUrl?: string;
+  audioUrl?: string;
 };
 
 export type MatchingActivity = {
   id: string;
   type: "matching";
   prompt: string;
+  locale?: string;
   pairs: {
     emoji: string;
     word: string;
@@ -112,6 +128,7 @@ export type UniversalMatchingActivity = {
   id: string;
   type: "universal_matching";
   prompt: string;
+  locale?: string;
   maxAttempts?: number;
   pairs: Array<{
     id: string;
@@ -127,6 +144,7 @@ export type PictureChoiceActivity = {
   id: string;
   type: "picture_choice";
   question: string;
+  locale?: string;
   maxAttempts?: number;
   options: {
     emoji: string;
@@ -140,8 +158,11 @@ export type DragGameActivity = {
   id: string;
   type: "drag_game";
   prompt: string;
+  locale?: string;
   items: {
     emoji: string;
+    label?: string;
+    imageUrl?: string;
     target: string;
   }[];
 };
@@ -151,6 +172,7 @@ export type UniversalPuzzleActivity = {
   id: string;
   type: "universal_puzzle";
   prompt: string;
+  locale?: string;
   maxAttempts?: number;
   mode:
     | "category_sort"
@@ -195,6 +217,7 @@ export type ChoiceActivity = {
   id: string;
   type: "choice";
   prompt: string;
+  locale?: string;
   maxAttempts?: number;
   options: string[];
   answer: number;
@@ -205,6 +228,7 @@ export type QuizActivity = {
   id: string;
   type: "quiz";
   question: string;
+  locale?: string;
   maxAttempts?: number;
   options: string[];
   answer: number;

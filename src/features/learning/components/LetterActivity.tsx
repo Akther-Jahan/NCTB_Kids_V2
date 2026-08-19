@@ -6,6 +6,7 @@ import React, {
 } from "react";
 import {
   Animated,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -23,20 +24,22 @@ type Props = {
     data: {
       letter: string;
       sound: string;
+      locale?: string;
       examples: {
         emoji: string;
         word: string;
+        imageUrl?: string;
       }[];
     };
   };
   onComplete: () => void;
 };
 
-function speakBangla(text: string) {
+function speakText(text: string, language = "bn-BD") {
   void Speech.stop();
 
   Speech.speak(text, {
-    language: "bn-BD",
+    language,
     rate: 0.74,
     pitch: 1.08,
     volume: 1,
@@ -132,7 +135,7 @@ export default function LetterActivity({
     pulseAnimation.start();
 
     const timer = setTimeout(() => {
-      speakBangla(
+      speakText(
         `এটি হলো ${data.letter}। ${data.sound}`,
       );
     }, 420);
@@ -169,7 +172,7 @@ export default function LetterActivity({
   const handleRevealExamples = () => {
     setShowExamples(true);
 
-    speakBangla(
+    speakText(
       `${data.letter} দিয়ে কোন কোন শব্দ হয়, কার্ডে চাপ দিয়ে শোনো।`,
     );
   };
@@ -185,8 +188,9 @@ export default function LetterActivity({
       ]);
     }
 
-    speakBangla(
-      `${data.letter} দিয়ে ${word}`,
+    speakText(
+      word,
+      data.locale,
     );
   };
 
@@ -201,7 +205,7 @@ export default function LetterActivity({
     completedRef.current = true;
     setCompleted(true);
 
-    speakBangla(
+    speakText(
       `দারুণ! তুমি ${data.letter} অক্ষরটি শিখেছো।`,
     );
 
@@ -277,7 +281,7 @@ export default function LetterActivity({
               ●
             </Text>
             <Text style={styles.mimiBadgeText}>
-              LETTER COACH
+              মিমি গাইড
             </Text>
           </View>
         </View>
@@ -306,8 +310,9 @@ export default function LetterActivity({
           accessibilityRole="button"
           accessibilityLabel="অক্ষরটি আবার শুনি"
           onPress={() =>
-            speakBangla(
+            speakText(
               `${data.letter}। ${data.sound}`,
+              data.locale,
             )
           }
           style={({ pressed }) => [
@@ -374,7 +379,7 @@ export default function LetterActivity({
           <View style={styles.sectionHeader}>
             <View>
               <Text style={styles.sectionEyebrow}>
-                TAP & LISTEN
+                চাপ দিয়ে শুনি
               </Text>
               <Text style={styles.sectionTitle}>
                 সব কার্ডে চাপ দাও
@@ -423,11 +428,19 @@ export default function LetterActivity({
                             styles.exampleEmojiCircleVisited,
                         ]}
                       >
-                        <Text
-                          style={styles.exampleEmoji}
-                        >
-                          {item.emoji || "⭐"}
-                        </Text>
+                        {item.imageUrl ? (
+                          <Image
+                            source={{ uri: item.imageUrl }}
+                            style={styles.exampleImage}
+                            resizeMode="contain"
+                          />
+                        ) : (
+                          <Text
+                            style={styles.exampleEmoji}
+                          >
+                            {item.emoji || "⭐"}
+                          </Text>
+                        )}
                       </View>
 
                       <Text
@@ -464,7 +477,7 @@ export default function LetterActivity({
                 ✅
               </Text>
               <Text style={styles.noExamplesText}>
-                অক্ষরটি চিনলেই mission শেষ।
+                অক্ষরটি চিনলেই এই শেখার কাজ শেষ।
               </Text>
             </View>
           )}
@@ -499,8 +512,8 @@ export default function LetterActivity({
                 style={styles.completeEyebrow}
               >
                 {completed
-                  ? "MISSION CLEARED"
-                  : "FINAL STEP"}
+                  ? "সবগুলো শিখেছি"
+                  : "শেষ ধাপ"}
               </Text>
               <Text style={styles.completeText}>
                 {completed
@@ -833,6 +846,11 @@ const styles = StyleSheet.create({
   },
   exampleEmojiCircleVisited: {
     backgroundColor: "#D9F3DF",
+  },
+  exampleImage: {
+    width: 58,
+    height: 58,
+    borderRadius: 14,
   },
   exampleEmoji: {
     fontSize: 36,

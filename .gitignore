@@ -34,3 +34,6 @@ coverage/
 **/coverage/
 
 PHASE1_SETUP.zip
+
+.idea/
+/android/

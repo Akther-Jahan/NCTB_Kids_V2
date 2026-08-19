@@ -41,8 +41,27 @@ const ATTEMPT_ACTIVITY_TYPES = new Set([
   "puzzle",
 ]);
 
+const VOICE_ACTIVITY_TYPES = new Set([
+  "story_snippet",
+  "letter",
+  "snippet",
+  "word_build",
+  "picture_choice",
+  "flashcard",
+  "matching",
+  "tap",
+  "drag_game",
+  "audio_lesson",
+  "multiple_choice",
+  "puzzle",
+]);
+
 function usesAttemptPolicy(type) {
   return ATTEMPT_ACTIVITY_TYPES.has(type);
+}
+
+function usesVoiceLocale(type) {
+  return VOICE_ACTIVITY_TYPES.has(type);
 }
 
 const SUBJECT_NAMES = {
@@ -72,6 +91,7 @@ function template(type, subjectId = "bangla") {
     content_engine: "universal_v1",
     reward_xp: 10,
     max_attempts: 3,
+    locale: localeForSubject(subjectId),
   };
 
   switch (type) {
@@ -86,7 +106,7 @@ function template(type, subjectId = "bangla") {
         ...base,
         letter: "",
         sound: "",
-        examples: [{ id: uid("example"), emoji: "", word: "", word_bn: "" }],
+        examples: [{ id: uid("example"), emoji: "", word: "", word_bn: "", image_url: "" }],
       };
     case "snippet":
       return { ...base, imageEmoji: "📖", lines: [""] };
@@ -542,6 +562,35 @@ function validateActivityForPublish(activityType, payload, title) {
   if (!String(title ?? "").trim()) return "Add an activity title before publishing.";
   if (activityType === "puzzle") return validatePuzzlePayload(payload);
 
+  if (activityType === "story_snippet") {
+    const slides = Array.isArray(payload?.slides) ? payload.slides : [];
+    const usableSlides = slides.filter((slide) =>
+      Boolean(
+        String(slide?.text ?? slide?.text_bn ?? "").trim() ||
+          String(slide?.speech ?? slide?.speech_bn ?? "").trim() ||
+          String(slide?.image_url ?? "").trim(),
+      ),
+    );
+    if (!usableSlides.length) return "Story / Guided Lesson: add at least one slide with text, voice text, or an image.";
+  }
+
+  if (activityType === "letter") {
+    if (!String(payload?.letter ?? "").trim()) return "Letter / Symbol: add the letter or symbol before publishing.";
+  }
+
+  if (activityType === "snippet") {
+    const lines = Array.isArray(payload?.lines) ? payload.lines : [];
+    if (!lines.some((line) => String(line ?? "").trim())) return "Reading / Explanation: add at least one line.";
+  }
+
+  if (activityType === "word_build") {
+    const letters = (Array.isArray(payload?.letters) ? payload.letters : [])
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean);
+    if (!String(payload?.answer ?? "").trim()) return "Word Builder: add the correct word / answer.";
+    if (letters.length < 2) return "Word Builder: add at least 2 letter or character tiles.";
+  }
+
   if (activityType === "picture_choice") {
     const options = Array.isArray(payload?.options) ? payload.options : [];
     if (!String(payload?.question ?? "").trim()) return "Picture Choice: add the question.";
@@ -549,6 +598,8 @@ function validateActivityForPublish(activityType, payload, title) {
     if (options.some((item) => !String(item?.label ?? item?.label_bn ?? "").trim() && !item?.image_url && !item?.emoji)) {
       return "Picture Choice: every option needs text, emoji, or image.";
     }
+    const answer = Number(payload?.answer);
+    if (!Number.isInteger(answer) || answer < 0 || answer >= options.length) return "Picture Choice: choose a valid correct answer.";
   }
 
   if (activityType === "audio_lesson") {
@@ -564,10 +615,39 @@ function validateActivityForPublish(activityType, payload, title) {
   if (activityType === "matching") {
     const pairs = Array.isArray(payload?.pairs) ? payload.pairs : [];
     if (pairs.length < 2) return "Matching: add at least 2 pairs.";
+    for (const [index, pair] of pairs.entries()) {
+      const leftReady = Boolean(String(pair?.left_text ?? pair?.word_bn ?? "").trim() || pair?.left_image_url);
+      const rightReady = Boolean(String(pair?.right_text ?? "").trim() || pair?.right_image_url || pair?.image_url || pair?.emoji);
+      if (!leftReady || !rightReady) return `Matching: Pair ${index + 1} needs content on both the left and right side.`;
+    }
+  }
+
+  if (activityType === "tap") {
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    if (!String(payload?.prompt ?? "").trim()) return "Tap & Learn: add the prompt.";
+    if (!items.length) return "Tap & Learn: add at least one tappable item.";
+    if (items.some((item) => !String(item?.label ?? item?.label_bn ?? "").trim() && !item?.image_url && !item?.emoji)) {
+      return "Tap & Learn: every item needs text, emoji, or image.";
+    }
+  }
+
+  if (activityType === "drag_game") {
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    if (!String(payload?.prompt ?? "").trim()) return "Drag / Sort: add the prompt.";
+    if (items.length < 2) return "Drag / Sort: add at least 2 items.";
+    for (const [index, item] of items.entries()) {
+      const visual = String(item?.label ?? item?.label_bn ?? "").trim() || item?.image_url || item?.emoji;
+      if (!visual) return `Drag / Sort: Item ${index + 1} needs text, emoji, or image.`;
+      if (!String(item?.target ?? "").trim()) return `Drag / Sort: Item ${index + 1} needs a target / group.`;
+    }
   }
 
   if (activityType === "image_lesson" && !String(payload?.image_url ?? "").trim()) {
     return "Image Lesson: upload or add an image before publishing.";
+  }
+
+  if (activityType === "video_lesson" && !String(payload?.video_url ?? "").trim()) {
+    return "Video Lesson: add the video URL before publishing.";
   }
 
   return "";
@@ -834,7 +914,7 @@ function PayloadFields({ type, payload, onChange, onOpenQuiz, subjectId }) {
   }
 
   if (type === "letter") {
-    const examples = Array.isArray(payload.examples) && payload.examples.length ? payload.examples : [{ id: uid("example"), emoji: "", word: "", word_bn: "" }];
+    const examples = Array.isArray(payload.examples) && payload.examples.length ? payload.examples : [{ id: uid("example"), emoji: "", word: "", word_bn: "", image_url: "" }];
     return (
       <>
         <div className="grid-2">
@@ -845,11 +925,17 @@ function PayloadFields({ type, payload, onChange, onOpenQuiz, subjectId }) {
         <ListEditor
           items={examples}
           setItems={(items) => set("examples", items)}
-          createItem={() => ({ id: uid("example"), emoji: "", word: "", word_bn: "" })}
+          createItem={() => ({ id: uid("example"), emoji: "", word: "", word_bn: "", image_url: "" })}
           addLabel="Add example"
           renderItem={(item, _, update) => {
             const word = item.word ?? item.word_bn ?? "";
-            return <div className="grid-2"><label>Word / example<input value={word} onChange={(e) => update({ ...item, word: e.target.value, word_bn: e.target.value })} /></label><label>Emoji <span className="optional">(optional)</span><input value={item.emoji ?? ""} onChange={(e) => update({ ...item, emoji: e.target.value })} /></label></div>;
+            return (
+              <div className="grid-2">
+                <label>Word / example<input value={word} onChange={(e) => update({ ...item, word: e.target.value, word_bn: e.target.value })} /></label>
+                <label>Emoji <span className="optional">(optional)</span><input value={item.emoji ?? ""} onChange={(e) => update({ ...item, emoji: e.target.value })} /></label>
+                <div className="span-2"><FileUpload value={item.image_url ?? ""} onChange={(image_url) => update({ ...item, image_url })} label="Example image (optional)" /></div>
+              </div>
+            );
           }}
         />
       </>
@@ -904,9 +990,6 @@ function PayloadFields({ type, payload, onChange, onOpenQuiz, subjectId }) {
   if (type === "flashcard") {
     return (
       <>
-        <div className="grid-2 compact-settings">
-          <label>Voice language<select value={payload.locale ?? localeForSubject(subjectId)} onChange={(e) => set("locale", e.target.value)}><option value="bn-BD">Bangla</option><option value="en-US">English</option></select></label>
-        </div>
         <ListEditor
           items={payload.cards ?? []}
           setItems={(cards) => set("cards", cards)}
@@ -1017,9 +1100,6 @@ function PayloadFields({ type, payload, onChange, onOpenQuiz, subjectId }) {
   if (type === "audio_lesson") {
     return (
       <>
-        <div className="grid-2 compact-settings">
-          <label>Voice language<select value={payload.locale ?? localeForSubject(subjectId)} onChange={(e) => set("locale", e.target.value)}><option value="bn-BD">Bangla</option><option value="en-US">English</option></select></label>
-        </div>
         <ListEditor
           items={payload.items ?? []}
           setItems={(items) => set("items", items)}
@@ -1280,6 +1360,26 @@ export default function ActivityBuilder({ chapter, onOpenQuiz }) {
                       {[1, 2, 3, 4, 5].map((value) => (
                         <option key={value} value={value}>{value} {value === 1 ? "try" : "tries"}</option>
                       ))}
+                    </select>
+                  </label>
+                ) : null}
+                {usesVoiceLocale(form.activityType) ? (
+                  <label>
+                    Voice language
+                    <select
+                      value={form.payload?.locale ?? localeForSubject(chapter.subject_id)}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          payload: {
+                            ...form.payload,
+                            locale: e.target.value,
+                          },
+                        })
+                      }
+                    >
+                      <option value="bn-BD">Bangla</option>
+                      <option value="en-US">English</option>
                     </select>
                   </label>
                 ) : null}

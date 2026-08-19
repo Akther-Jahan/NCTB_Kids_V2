@@ -28,8 +28,17 @@ function SideContent({
   return (
     <View style={styles.sideContent}>
       {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.image} resizeMode="contain" /> : null}
-      {emoji ? <Text style={styles.emoji}>{emoji}</Text> : null}
-      {text ? <Text style={styles.sideText}>{text}</Text> : null}
+      {!imageUrl && emoji ? <Text style={styles.emoji}>{emoji}</Text> : null}
+      {text ? (
+        <Text
+          style={styles.sideText}
+          numberOfLines={4}
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+        >
+          {text}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -70,7 +79,9 @@ export default function UniversalMatchingActivity({
     completedRef.current = false;
 
     const timer = setTimeout(() => {
-      if (activity.prompt.trim()) void speakLearningVoice(activity.prompt);
+      if (activity.prompt.trim()) {
+        void speakLearningVoice(activity.prompt, { language: activity.locale });
+      }
     }, 300);
 
     if (activity.pairs.length === 0) {
@@ -82,7 +93,7 @@ export default function UniversalMatchingActivity({
       clearTimeout(timer);
       void stopLearningVoice();
     };
-  }, [activity.id, activity.pairs.length, activity.prompt]);
+  }, [activity.id, activity.locale, activity.pairs.length, activity.prompt]);
 
   const rightChoices = useMemo(
     () => activity.pairs.map((pair, pairIndex) => ({ pairIndex, pair })).reverse(),
@@ -106,7 +117,7 @@ export default function UniversalMatchingActivity({
       const next = matched.includes(leftIndex) ? matched : [...matched, leftIndex];
       setMatched(next);
       setWrong(false);
-      setFeedback("Correct match ✅");
+      setFeedback("দারুণ! জোড়াটি মিলেছে ✅");
       setSelectedLeft(null);
       setSelectedRight(null);
 
@@ -114,7 +125,7 @@ export default function UniversalMatchingActivity({
         registerAttempt(true);
         completedRef.current = true;
         setContinueUnlocked(false);
-        setFeedback("All pairs matched! 🎉");
+        setFeedback("সবগুলো জোড়া মিলেছে! 🎉");
         onCompleteRef.current();
       }
       return;
@@ -124,8 +135,8 @@ export default function UniversalMatchingActivity({
     setWrong(true);
     setFeedback(
       unlocked
-        ? "Not a match yet. Next is unlocked — you can keep practicing."
-        : "Not a match yet. Try again 🙂",
+        ? "এটা মেলেনি। পরের ধাপ খুলে গেছে—চাইলে আরও অনুশীলন করো।"
+        : "এটা মেলেনি। আরেকবার চেষ্টা করো 🙂",
     );
     setSelectedLeft(null);
     setSelectedRight(null);
@@ -151,63 +162,94 @@ export default function UniversalMatchingActivity({
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
+        <View style={styles.headerIcon}><Text style={styles.headerIconText}>🔗</Text></View>
         <View style={styles.headerCopy}>
-          <Text style={styles.eyebrow}>MATCHING</Text>
-          <Text style={styles.title}>Find each pair</Text>
+          <Text style={styles.eyebrow}>মিল খুঁজি</Text>
+          <Text style={styles.title}>সঠিক জোড়াটি খুঁজে বের করো</Text>
         </View>
         <View style={styles.attemptBadge}>
-          <Text style={styles.attemptLabel}>TRY</Text>
+          <Text style={styles.attemptLabel}>চেষ্টা</Text>
           <Text style={styles.attemptValue}>{Math.min(localAttempts + 1, limit)}/{limit}</Text>
         </View>
-        <Pressable onPress={() => void speakLearningVoice(activity.prompt)} style={styles.listenButton}>
+      </View>
+
+      <View style={styles.missionCard}>
+        <Text style={styles.missionIcon}>🎯</Text>
+        <Text style={styles.prompt}>{activity.prompt || "এক পাশ থেকে একটি কার্ড, তারপর অন্য পাশ থেকে তার জোড়াটি বেছে নাও।"}</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="নির্দেশনা শুনি"
+          onPress={() => void speakLearningVoice(activity.prompt, { language: activity.locale })}
+          style={styles.listenButton}
+        >
           <Text style={styles.listenText}>🔊</Text>
         </Pressable>
       </View>
 
-      {activity.prompt ? <Text style={styles.prompt}>{activity.prompt}</Text> : null}
+      <View style={styles.progressRow}>
+        <Text style={styles.progressLabel}>মিলেছে</Text>
+        <Text style={styles.progressValue}>{matched.length}/{activity.pairs.length}</Text>
+      </View>
+      <View style={styles.progressTrack}>
+        <View
+          style={[
+            styles.progressFill,
+            { width: `${activity.pairs.length ? (matched.length / activity.pairs.length) * 100 : 0}%` },
+          ]}
+        />
+      </View>
+
       {continueUnlocked && !completedRef.current ? (
-        <Text style={styles.unlockedText}>✓ Next is unlocked. You can keep matching.</Text>
+        <View style={styles.unlockedBanner}>
+          <Text style={styles.unlockedText}>✓ পরের ধাপ খুলে গেছে। চাইলে এখানেই আরও মিলিয়ে দেখতে পারো।</Text>
+        </View>
       ) : null}
-      <Text style={styles.progress}>{matched.length}/{activity.pairs.length} matched</Text>
 
-      <View style={styles.columns}>
-        <View style={styles.column}>
-          <Text style={styles.columnTitle}>Left</Text>
-          {activity.pairs.map((pair, index) => {
-            const done = matched.includes(index);
-            const active = selectedLeft === index;
-            return (
-              <Pressable
-                key={`left-${pair.id}`}
-                disabled={done || completedRef.current}
-                onPress={() => chooseLeft(index)}
-                style={[styles.card, active && styles.cardActive, done && styles.cardDone]}
-              >
-                <SideContent text={pair.leftText} imageUrl={pair.leftImageUrl} />
-                {done ? <Text style={styles.done}>✓</Text> : null}
-              </Pressable>
-            );
-          })}
-        </View>
+      <View style={styles.columnLabels}>
+        <Text style={styles.columnLabel}>প্রথম দিক</Text>
+        <Text style={styles.columnLabel}>জোড়া দিক</Text>
+      </View>
 
-        <View style={styles.column}>
-          <Text style={styles.columnTitle}>Right</Text>
-          {rightChoices.map(({ pair, pairIndex }, index) => {
-            const done = matched.includes(pairIndex);
-            const active = selectedRight === index;
-            return (
+      <View style={styles.rows}>
+        {activity.pairs.map((leftPair, rowIndex) => {
+          const rightChoice = rightChoices[rowIndex];
+          const leftDone = matched.includes(rowIndex);
+          const rightDone = rightChoice ? matched.includes(rightChoice.pairIndex) : false;
+          const leftActive = selectedLeft === rowIndex;
+          const rightActive = selectedRight === rowIndex;
+
+          return (
+            <View key={`match-row-${leftPair.id}`} style={styles.matchRow}>
               <Pressable
-                key={`right-${pair.id}`}
-                disabled={done || completedRef.current}
-                onPress={() => chooseRight(index)}
-                style={[styles.card, active && styles.cardActive, done && styles.cardDone]}
+                disabled={leftDone || completedRef.current}
+                onPress={() => chooseLeft(rowIndex)}
+                style={[styles.card, leftActive && styles.cardActive, leftDone && styles.cardDone]}
               >
-                <SideContent text={pair.rightText} imageUrl={pair.rightImageUrl} emoji={pair.rightEmoji} />
-                {done ? <Text style={styles.done}>✓</Text> : null}
+                <SideContent text={leftPair.leftText} imageUrl={leftPair.leftImageUrl} />
+                {leftDone ? <Text style={styles.done}>✓</Text> : null}
               </Pressable>
-            );
-          })}
-        </View>
+
+              <View style={[styles.connector, leftDone && styles.connectorDone]}>
+                <Text style={styles.connectorText}>{leftDone ? "✓" : "↔"}</Text>
+              </View>
+
+              {rightChoice ? (
+                <Pressable
+                  disabled={rightDone || completedRef.current}
+                  onPress={() => chooseRight(rowIndex)}
+                  style={[styles.card, rightActive && styles.cardActive, rightDone && styles.cardDone]}
+                >
+                  <SideContent
+                    text={rightChoice.pair.rightText}
+                    imageUrl={rightChoice.pair.rightImageUrl}
+                    emoji={rightChoice.pair.rightEmoji}
+                  />
+                  {rightDone ? <Text style={styles.done}>✓</Text> : null}
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })}
       </View>
 
       {feedback ? (
@@ -221,31 +263,44 @@ export default function UniversalMatchingActivity({
 
 const styles = StyleSheet.create({
   container: { width: "100%" },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  headerIcon: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#7653BD" },
+  headerIconText: { fontSize: 23 },
   headerCopy: { flex: 1 },
-  attemptBadge: { minWidth: 58, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 14, alignItems: "center", backgroundColor: "#F2ECFF" },
+  eyebrow: { fontSize: 10, fontWeight: "900", color: "#8A8090" },
+  title: { marginTop: 2, fontSize: 18, lineHeight: 24, fontWeight: "900", color: "#2B2530" },
+  attemptBadge: { minWidth: 58, paddingHorizontal: 8, paddingVertical: 7, borderRadius: 15, alignItems: "center", backgroundColor: "#F2ECFF" },
   attemptLabel: { fontSize: 8, fontWeight: "900", color: "#897D92" },
   attemptValue: { marginTop: 1, fontSize: 12, fontWeight: "900", color: "#7653BD" },
-  unlockedText: { marginTop: 10, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, fontSize: 12, fontWeight: "800", textAlign: "center", color: "#287DA4", backgroundColor: "#EAF5FF" },
-  eyebrow: { fontSize: 10, letterSpacing: 1.2, fontWeight: "900", color: "#8B8190" },
-  title: { marginTop: 3, fontSize: 22, fontWeight: "900", color: "#2A242D" },
-  listenButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF5FF" },
-  listenText: { fontSize: 20 },
-  prompt: { marginTop: 12, fontSize: 16, lineHeight: 23, fontWeight: "800", color: "#574F5B" },
-  progress: { marginTop: 10, fontSize: 12, fontWeight: "900", color: "#7653BD" },
-  columns: { flexDirection: "row", gap: 10, marginTop: 16, alignItems: "flex-start" },
-  column: { flex: 1, gap: 9 },
-  columnTitle: { fontSize: 11, fontWeight: "900", textAlign: "center", color: "#776E7B" },
-  card: { minHeight: 92, padding: 9, borderWidth: 2, borderColor: "#DDD5E4", borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
-  cardActive: { borderColor: "#7653BD", backgroundColor: "#F0E9FF" },
-  cardDone: { borderColor: "#A9D7A3", backgroundColor: "#E7F7E4", opacity: 0.72 },
-  sideContent: { alignItems: "center", justifyContent: "center", gap: 5 },
+  missionCard: { marginTop: 14, padding: 13, paddingRight: 55, minHeight: 72, flexDirection: "row", alignItems: "center", gap: 9, borderRadius: 21, backgroundColor: "#F7F3FC" },
+  missionIcon: { fontSize: 24 },
+  prompt: { flex: 1, fontSize: 14, lineHeight: 21, fontWeight: "800", color: "#514957" },
+  listenButton: { position: "absolute", right: 10, width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: "#E8F5FF" },
+  listenText: { fontSize: 18 },
+  progressRow: { marginTop: 14, flexDirection: "row", justifyContent: "space-between" },
+  progressLabel: { fontSize: 11, fontWeight: "900", color: "#756C79" },
+  progressValue: { fontSize: 11, fontWeight: "900", color: "#7653BD" },
+  progressTrack: { height: 8, marginTop: 6, borderRadius: 4, overflow: "hidden", backgroundColor: "#E8E1EA" },
+  progressFill: { height: "100%", borderRadius: 4, backgroundColor: "#7653BD" },
+  unlockedBanner: { marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 15, backgroundColor: "#EAF5FF" },
+  unlockedText: { fontSize: 11, lineHeight: 17, fontWeight: "800", textAlign: "center", color: "#287DA4" },
+  columnLabels: { marginTop: 16, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 6 },
+  columnLabel: { width: "42%", fontSize: 10, fontWeight: "900", textAlign: "center", color: "#7D7480" },
+  rows: { marginTop: 7, gap: 10 },
+  matchRow: { flexDirection: "row", alignItems: "stretch", gap: 7 },
+  card: { flex: 1, minHeight: 104, paddingHorizontal: 8, paddingVertical: 10, borderWidth: 2, borderColor: "#E0D8E6", borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
+  cardActive: { borderColor: "#7653BD", backgroundColor: "#F1EBFF" },
+  cardDone: { borderColor: "#79C989", backgroundColor: "#EBF9EE" },
+  sideContent: { width: "100%", alignItems: "center", justifyContent: "center", gap: 5 },
   image: { width: 58, height: 52 },
-  emoji: { fontSize: 28 },
-  sideText: { fontSize: 15, lineHeight: 20, fontWeight: "900", textAlign: "center", color: "#352F39" },
-  done: { position: "absolute", top: 5, right: 7, fontSize: 15, fontWeight: "900", color: "#3F8B39" },
-  feedback: { marginTop: 14, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 16 },
-  feedbackCorrect: { backgroundColor: "#E4F7E2" },
+  emoji: { fontSize: 29 },
+  sideText: { width: "100%", fontSize: 14, lineHeight: 19, fontWeight: "900", textAlign: "center", color: "#352F39" },
+  connector: { width: 34, height: 34, alignSelf: "center", borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#E9F5FF" },
+  connectorDone: { backgroundColor: "#DFF4E4" },
+  connectorText: { fontSize: 16, fontWeight: "900", color: "#4C8BA5" },
+  done: { position: "absolute", top: 6, right: 8, fontSize: 15, fontWeight: "900", color: "#3F8B39" },
+  feedback: { marginTop: 14, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 17 },
+  feedbackCorrect: { backgroundColor: "#E4F7E7" },
   feedbackWrong: { backgroundColor: "#FFF0E7" },
-  feedbackText: { fontSize: 13, fontWeight: "800", textAlign: "center", color: "#443B47" },
+  feedbackText: { fontSize: 12, lineHeight: 18, fontWeight: "800", textAlign: "center", color: "#443B47" },
 });

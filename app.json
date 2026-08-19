@@ -31,7 +31,15 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [],
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "NCTB Kids-কে তোমার কথা রেকর্ড করার জন্য মাইক্রোফোন ব্যবহার করতে দাও।",
+          "recordAudioAndroid": true
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "60332e2e-a66e-44c8-a72a-80cefb9dcfa6"

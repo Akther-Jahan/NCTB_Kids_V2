@@ -3,10 +3,12 @@ import * as Speech from "expo-speech";
 export type LearningVoiceOptions = {
   rate?: number;
   pitch?: number;
+  language?: string;
 };
 
 const DEFAULT_RATE = 0.76;
 const DEFAULT_PITCH = 1.04;
+const DEFAULT_LANGUAGE = "bn-BD";
 
 let queue: Promise<void> = Promise.resolve();
 let generation = 0;
@@ -24,7 +26,7 @@ function speakOne(
 
   return new Promise<void>((resolve) => {
     Speech.speak(clean, {
-      language: "bn-BD",
+      language: options?.language ?? DEFAULT_LANGUAGE,
       rate: options?.rate ?? DEFAULT_RATE,
       pitch: options?.pitch ?? DEFAULT_PITCH,
       onDone: () => resolve(),
@@ -71,10 +73,11 @@ export async function speakLearningVoice(
 export async function speakOptionThenFeedback(
   optionText: string,
   feedbackText: string,
+  options?: LearningVoiceOptions,
 ) {
   await stopLearningVoice();
-  await queueLearningVoice(optionText);
-  await queueLearningVoice(feedbackText);
+  await queueLearningVoice(optionText, options);
+  await queueLearningVoice(feedbackText, options);
 }
 
 export async function speakQuizSummary({
@@ -93,5 +96,6 @@ export async function speakQuizSummary({
 
   return speakLearningVoice(text, {
     rate: 0.78,
+    language: "bn-BD",
   });
 }

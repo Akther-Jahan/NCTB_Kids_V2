@@ -69,23 +69,23 @@ function answersMatch(
 function modeTitle(mode: UniversalPuzzle["mode"]) {
   switch (mode) {
     case "equation":
-      return "Solve the equation";
+      return "সমীকরণটি সমাধান করো";
     case "numeric_answer":
-      return "Write the answer";
+      return "উত্তরটি লেখো";
     case "missing_number":
-      return "Find the missing number";
+      return "হারানো সংখ্যাটি খুঁজে বের করো";
     case "number_sequence":
-      return "Complete the sequence";
+      return "সংখ্যার ধারাটি পূরণ করো";
     case "fill_blank":
-      return "Fill in the blank";
+      return "খালি জায়গাটি পূরণ করো";
     case "counting":
-      return "Count and answer";
+      return "গুনে উত্তর দাও";
     case "ordering":
-      return "Put in the correct order";
+      return "সঠিক ক্রমে সাজাও";
     case "category_sort":
-      return "Sort into the right group";
+      return "সঠিক দলে সাজাও";
     case "true_false":
-      return "True or False?";
+      return "সত্য নাকি মিথ্যা?";
   }
 }
 
@@ -132,7 +132,7 @@ export default function UniversalPuzzleActivity({
 
     const timer = setTimeout(() => {
       const voice = clean(activity.voiceText) || clean(activity.prompt) || modeTitle(activity.mode);
-      if (voice) void speakLearningVoice(voice);
+      if (voice) void speakLearningVoice(voice, { language: activity.locale });
     }, 300);
 
     return () => {
@@ -153,7 +153,7 @@ export default function UniversalPuzzleActivity({
     return { nextAttempts, unlocked };
   };
 
-  const complete = (message = "Great job! ✅") => {
+  const complete = (message = "দারুণ! ঠিক হয়েছে 🎉") => {
     setWrong(false);
     setFeedback(message);
     if (!completedRef.current) {
@@ -163,7 +163,7 @@ export default function UniversalPuzzleActivity({
     }
   };
 
-  const reject = (message = "Try again 🙂", countAttempt = true) => {
+  const reject = (message = "আরেকবার চেষ্টা করো 🙂", countAttempt = true) => {
     let unlocked = continueUnlocked;
     if (countAttempt) {
       unlocked = registerAttempt(false).unlocked;
@@ -172,7 +172,7 @@ export default function UniversalPuzzleActivity({
     setWrong(true);
     setFeedback(
       unlocked
-        ? `${message} Next is unlocked — you can keep practicing.`
+        ? `${message} পরের ধাপ খুলে গেছে—চাইলে আরও অনুশীলন করো।`
         : message,
     );
   };
@@ -189,7 +189,7 @@ export default function UniversalPuzzleActivity({
       complete();
       return;
     }
-    reject(activity.hint ? `Try again. Hint: ${activity.hint}` : "Not quite. Try again 🙂");
+    reject(activity.hint ? `আরেকবার চেষ্টা করো। ইঙ্গিত: ${activity.hint}` : "এখনো হয়নি। আবার চেষ্টা করো 🙂");
   };
 
   const orderedWords = activity.words ?? [];
@@ -208,13 +208,13 @@ export default function UniversalPuzzleActivity({
       current.length === correctOrder.length &&
       current.every((item, index) => normalized(item) === normalized(correctOrder[index]));
 
-    if (isCorrect) complete("Perfect order! ✅");
-    else reject(activity.hint ? `Try again. Hint: ${activity.hint}` : "The order is not correct yet. Try again.");
+    if (isCorrect) complete("দারুণ! ক্রমটি ঠিক হয়েছে ✅");
+    else reject(activity.hint ? `আরেকবার চেষ্টা করো। ইঙ্গিত: ${activity.hint}` : "ক্রমটি এখনো ঠিক হয়নি। আবার চেষ্টা করো।");
   };
 
   const chooseSortCategory = (category: string) => {
     if (!activeSortId) {
-      reject("Choose an item first.", false);
+      reject("আগে একটি আইটেম বেছে নাও।", false);
       return;
     }
 
@@ -222,7 +222,7 @@ export default function UniversalPuzzleActivity({
     if (!item) return;
 
     if (normalized(item.target) !== normalized(category)) {
-      reject(activity.hint ? `Try another group. Hint: ${activity.hint}` : "That group is not correct. Try another one.");
+      reject(activity.hint ? `অন্য দল চেষ্টা করো। ইঙ্গিত: ${activity.hint}` : "এই দলটি ঠিক নয়। অন্যটি চেষ্টা করো।");
       return;
     }
 
@@ -230,10 +230,10 @@ export default function UniversalPuzzleActivity({
     setSortedIds(next);
     setActiveSortId(null);
     setWrong(false);
-    setFeedback("Correct group ✅");
+    setFeedback("ঠিক দলে গেছে ✅");
 
     if (next.length === categoryItems.length) {
-      complete("Everything is sorted correctly! 🎉");
+      complete("সবগুলো সঠিক দলে সাজানো হয়েছে! 🎉");
     }
   };
 
@@ -241,19 +241,20 @@ export default function UniversalPuzzleActivity({
     <View style={styles.container}>
       <View style={styles.headingRow}>
         <View style={styles.headingCopy}>
-          <Text style={styles.eyebrow}>PUZZLE</Text>
+          <Text style={styles.eyebrow}>মজার পাজল</Text>
           <Text style={styles.title}>{modeTitle(activity.mode)}</Text>
         </View>
         <View style={styles.attemptBadge}>
-          <Text style={styles.attemptLabel}>TRY</Text>
+          <Text style={styles.attemptLabel}>চেষ্টা</Text>
           <Text style={styles.attemptValue}>{Math.min(localAttempts + 1, limit)}/{limit}</Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Listen to instruction"
+          accessibilityLabel="নির্দেশনা শুনি"
           onPress={() =>
             void speakLearningVoice(
               clean(activity.voiceText) || clean(activity.prompt) || modeTitle(activity.mode),
+              { language: activity.locale },
             )
           }
           style={styles.listenButton}
@@ -265,7 +266,7 @@ export default function UniversalPuzzleActivity({
       {clean(activity.prompt) ? <Text style={styles.prompt}>{activity.prompt}</Text> : null}
       {continueUnlocked && !completedRef.current ? (
         <View style={styles.unlockedBanner}>
-          <Text style={styles.unlockedText}>✓ Next is unlocked. Keep practicing if you want.</Text>
+          <Text style={styles.unlockedText}>✓ পরের ধাপ খুলে গেছে। চাইলে আরও অনুশীলন করো।</Text>
         </View>
       ) : null}
 
@@ -291,9 +292,9 @@ export default function UniversalPuzzleActivity({
 
       {activity.mode === "ordering" ? (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Your order</Text>
+          <Text style={styles.sectionLabel}>তোমার সাজানো ক্রম</Text>
           <View style={styles.tileWrap}>
-            {selectedOrder.length === 0 ? <Text style={styles.helper}>Tap the tiles below in the correct order.</Text> : null}
+            {selectedOrder.length === 0 ? <Text style={styles.helper}>নিচের টাইলগুলো সঠিক ক্রমে চাপ দাও।</Text> : null}
             {selectedOrder.map((index, position) => (
               <Pressable
                 key={`chosen-${index}`}
@@ -304,7 +305,7 @@ export default function UniversalPuzzleActivity({
               </Pressable>
             ))}
           </View>
-          <Text style={styles.sectionLabel}>Available tiles</Text>
+          <Text style={styles.sectionLabel}>যেগুলো বাকি আছে</Text>
           <View style={styles.tileWrap}>
             {remainingOrderIndices.map((index) => (
               <Pressable
@@ -322,10 +323,10 @@ export default function UniversalPuzzleActivity({
           </View>
           <View style={styles.buttonRow}>
             <Pressable onPress={() => { setSelectedOrder([]); setFeedback(""); setWrong(false); }} style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Reset</Text>
+              <Text style={styles.secondaryButtonText}>আবার সাজাই</Text>
             </Pressable>
             <Pressable disabled={selectedOrder.length !== orderedWords.length || completedRef.current} onPress={checkOrder} style={[styles.primaryButton, selectedOrder.length !== orderedWords.length && styles.buttonDisabled]}>
-              <Text style={styles.primaryButtonText}>Check ✓</Text>
+              <Text style={styles.primaryButtonText}>মিলিয়ে দেখি ✓</Text>
             </Pressable>
           </View>
         </View>
@@ -333,7 +334,7 @@ export default function UniversalPuzzleActivity({
 
       {activity.mode === "category_sort" ? (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>1. Choose an item</Text>
+          <Text style={styles.sectionLabel}>১. একটি আইটেম বেছে নাও</Text>
           <View style={styles.sortItems}>
             {categoryItems.map((item) => {
               const done = sortedIds.includes(item.id);
@@ -357,7 +358,7 @@ export default function UniversalPuzzleActivity({
               );
             })}
           </View>
-          <Text style={styles.sectionLabel}>2. Choose the correct group</Text>
+          <Text style={styles.sectionLabel}>২. সঠিক দলটি বেছে নাও</Text>
           <View style={styles.categoryWrap}>
             {categories.map((category) => (
               <Pressable
@@ -370,7 +371,7 @@ export default function UniversalPuzzleActivity({
               </Pressable>
             ))}
           </View>
-          <Text style={styles.helper}>{sortedIds.length}/{categoryItems.length} sorted</Text>
+          <Text style={styles.helper}>{sortedIds.length}/{categoryItems.length}টি সাজানো হয়েছে</Text>
         </View>
       ) : null}
 
@@ -383,11 +384,11 @@ export default function UniversalPuzzleActivity({
               onPress={() => {
                 setAnswer(value);
                 if (normalized(value) === normalized(activity.correctAnswer)) complete();
-                else reject(activity.hint ? `Try again. Hint: ${activity.hint}` : "Try the other answer.");
+                else reject(activity.hint ? `আরেকবার চেষ্টা করো। ইঙ্গিত: ${activity.hint}` : "অন্য উত্তরটি চেষ্টা করো।");
               }}
               style={[styles.choiceButton, answer === value && styles.choiceButtonSelected]}
             >
-              <Text style={styles.choiceText}>{value === "true" ? "✓ True" : "✕ False"}</Text>
+              <Text style={styles.choiceText}>{value === "true" ? "✓ সত্য" : "✕ মিথ্যা"}</Text>
             </Pressable>
           ))}
         </View>
@@ -431,7 +432,7 @@ function AnswerArea({
   if (useChoices) {
     return (
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Choose the answer</Text>
+        <Text style={styles.sectionLabel}>সঠিক উত্তরটি বেছে নাও</Text>
         <View style={styles.choiceWrap}>
           {options.map((option, index) => (
             <Pressable
@@ -445,7 +446,7 @@ function AnswerArea({
           ))}
         </View>
         <Pressable disabled={!answer || disabled} onPress={onCheck} style={[styles.primaryButton, (!answer || disabled) && styles.buttonDisabled]}>
-          <Text style={styles.primaryButtonText}>Check ✓</Text>
+          <Text style={styles.primaryButtonText}>মিলিয়ে দেখি ✓</Text>
         </Pressable>
       </View>
     );
@@ -454,7 +455,7 @@ function AnswerArea({
   const numeric = NUMERIC_MODES.has(activity.mode);
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionLabel}>Your answer</Text>
+      <Text style={styles.sectionLabel}>তোমার উত্তর</Text>
       <View style={styles.inputRow}>
         <TextInput
           value={answer}
@@ -462,7 +463,7 @@ function AnswerArea({
           onChangeText={setAnswer}
           keyboardType={numeric ? "numeric" : "default"}
           autoCapitalize="none"
-          placeholder="Type answer"
+          placeholder="উত্তর লেখো"
           placeholderTextColor="#9B949F"
           style={styles.input}
           onSubmitEditing={onCheck}
@@ -471,7 +472,7 @@ function AnswerArea({
         {activity.unit ? <Text style={styles.unit}>{activity.unit}</Text> : null}
       </View>
       <Pressable disabled={!clean(answer) || disabled} onPress={onCheck} style={[styles.primaryButton, (!clean(answer) || disabled) && styles.buttonDisabled]}>
-        <Text style={styles.primaryButtonText}>Check ✓</Text>
+        <Text style={styles.primaryButtonText}>মিলিয়ে দেখি ✓</Text>
       </Pressable>
     </View>
   );
@@ -497,7 +498,10 @@ function CountingStage({ activity }: { activity: UniversalPuzzle }) {
 }
 
 const styles = StyleSheet.create({
-  container: { width: "100%" },
+  container: {
+    width: "100%",
+    padding: 2,
+  },
   headingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   headingCopy: { flex: 1 },
   attemptBadge: { minWidth: 58, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 14, alignItems: "center", backgroundColor: "#F2ECFF" },
@@ -505,20 +509,20 @@ const styles = StyleSheet.create({
   attemptValue: { marginTop: 1, fontSize: 12, fontWeight: "900", color: "#7653BD" },
   unlockedBanner: { marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 14, backgroundColor: "#EAF5FF" },
   unlockedText: { fontSize: 12, lineHeight: 17, fontWeight: "800", textAlign: "center", color: "#287DA4" },
-  eyebrow: { fontSize: 10, letterSpacing: 1.2, fontWeight: "900", color: "#8A8190" },
-  title: { marginTop: 3, fontSize: 22, lineHeight: 28, fontWeight: "900", color: "#28222B" },
+  eyebrow: { fontSize: 10, fontWeight: "900", color: "#8A8190" },
+  title: { marginTop: 3, fontSize: 21, lineHeight: 29, fontWeight: "900", color: "#28222B" },
   listenButton: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF5FF" },
   listenText: { fontSize: 20 },
   prompt: { marginTop: 14, fontSize: 16, lineHeight: 24, fontWeight: "800", color: "#544B58" },
-  heroBox: { minHeight: 100, marginTop: 16, paddingHorizontal: 18, paddingVertical: 20, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#F4F0FA" },
-  heroText: { fontSize: 30, lineHeight: 40, fontWeight: "900", textAlign: "center", color: "#29232D" },
+  heroBox: { minHeight: 118, marginTop: 16, paddingHorizontal: 18, paddingVertical: 22, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "#EEE7FC" },
+  heroText: { fontSize: 34, lineHeight: 44, fontWeight: "900", textAlign: "center", color: "#29232D" },
   section: { marginTop: 18 },
   sectionLabel: { marginBottom: 9, fontSize: 12, fontWeight: "900", color: "#6D6471" },
   helper: { fontSize: 12, lineHeight: 18, color: "#827A86" },
   inputRow: { minHeight: 58, flexDirection: "row", alignItems: "center", borderWidth: 2, borderColor: "#DCD4E3", borderRadius: 18, backgroundColor: "#FFFFFF" },
   input: { flex: 1, minHeight: 56, paddingHorizontal: 16, fontSize: 22, fontWeight: "900", color: "#28222B" },
   unit: { paddingHorizontal: 14, fontSize: 15, fontWeight: "900", color: "#6E6472" },
-  primaryButton: { minHeight: 52, marginTop: 12, paddingHorizontal: 18, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: "#7653BD" },
+  primaryButton: { minHeight: 54, marginTop: 12, paddingHorizontal: 18, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: "#7653BD" },
   primaryButtonText: { fontSize: 15, fontWeight: "900", color: "#FFFFFF" },
   secondaryButton: { flex: 1, minHeight: 50, borderRadius: 25, alignItems: "center", justifyContent: "center", backgroundColor: "#EFEAF3" },
   secondaryButtonText: { fontSize: 14, fontWeight: "900", color: "#514857" },
@@ -528,7 +532,7 @@ const styles = StyleSheet.create({
   choiceButton: { minWidth: "46%", flexGrow: 1, minHeight: 58, paddingHorizontal: 14, borderWidth: 2, borderColor: "#DDD5E4", borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
   choiceButtonSelected: { borderColor: "#7653BD", backgroundColor: "#F0E9FF" },
   choiceText: { fontSize: 18, fontWeight: "900", color: "#322B36" },
-  feedback: { marginTop: 16, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 16 },
+  feedback: { marginTop: 16, paddingHorizontal: 15, paddingVertical: 13, borderRadius: 18 },
   feedbackCorrect: { backgroundColor: "#E4F7E2" },
   feedbackWrong: { backgroundColor: "#FFF0E7" },
   feedbackText: { fontSize: 13, lineHeight: 19, fontWeight: "800", textAlign: "center", color: "#443B47" },

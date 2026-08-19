@@ -34,6 +34,7 @@ type Props = {
   options: string[];
   answer: number;
   hint: string;
+  locale?: string;
   attempts?: number;
   maxAttempts?: number;
   result?: QuestionResult;
@@ -64,6 +65,7 @@ export default function QuizBattleActivity({
   answer,
   attempts = 0,
   hint,
+  locale,
   maxAttempts = 3,
   result,
   onSelectOption,
@@ -114,7 +116,7 @@ export default function QuizBattleActivity({
     }).start();
 
     const timer = setTimeout(() => {
-      void speakLearningVoice(prompt);
+      void speakLearningVoice(prompt, { language: locale });
     }, 350);
 
     return () => {
@@ -222,7 +224,7 @@ export default function QuizBattleActivity({
 
     setSelected(index);
     onSelectOption?.(index);
-    void speakLearningVoice(options[index]);
+    void speakLearningVoice(options[index], { language: locale });
   };
 
   const submit = () => {
@@ -329,7 +331,7 @@ export default function QuizBattleActivity({
 
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>
-            QUIZ BATTLE
+            মজার কুইজ
           </Text>
           <Text
             style={[
@@ -397,7 +399,7 @@ export default function QuizBattleActivity({
           <View style={styles.questionTop}>
             <View style={styles.questionCopy}>
               <Text style={styles.questionLabel}>
-                BATTLE QUESTION
+                প্রশ্ন
               </Text>
               <Text style={styles.questionHelper}>
                 উত্তর বেছে নিয়ে জমা দাও
@@ -406,7 +408,7 @@ export default function QuizBattleActivity({
 
             <Pressable
               onPress={() =>
-                void speakLearningVoice(prompt)
+                void speakLearningVoice(prompt, { language: locale })
               }
               style={({ pressed }) => [
                 styles.listenButton,
@@ -548,8 +550,8 @@ export default function QuizBattleActivity({
               : canGoNext
                 ? "পরে আবার করব"
                 : localAttempts > 0
-                  ? "MIMI'S HINT"
-                  : "READY?"}
+                  ? "মিমির ইঙ্গিত"
+                  : "প্রস্তুত?"}
           </Text>
           <Text style={styles.feedbackText}>
             {helperText}

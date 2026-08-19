@@ -29,10 +29,13 @@ export type BasePayload = {
 
 export type StorySnippetPayload = BasePayload & {
   kind: "guided_story";
+  locale?: string;
   slides: Array<{
     id: string;
     emoji?: string;
-    text_bn: string;
+    text?: string;
+    text_bn?: string;
+    speech?: string;
     speech_bn?: string;
     image_url?: string;
   }>;
@@ -60,7 +63,8 @@ export type AudioLessonPayload = BasePayload & {
   locale?: string;
   items: Array<{
     id: string;
-    text_bn: string;
+    text?: string;
+    text_bn?: string;
     audio_url?: string;
     image_url?: string;
     emoji?: string;
@@ -79,10 +83,12 @@ export type FlashcardPayload = BasePayload & {
   locale?: string;
   cards: Array<{
     id: string;
-    word_bn: string;
+    text?: string;
+    word_bn?: string;
     emoji?: string;
     image_url?: string;
     audio_url?: string;
+    speech?: string;
     speech_bn?: string;
   }>;
 };
@@ -109,16 +115,20 @@ export type MultipleChoicePayload = BasePayload & {
 };
 
 export type SnippetPayload = BasePayload & {
+  locale?: string;
   imageEmoji?: string;
   lines: string[];
 };
 
 export type TapPayload = BasePayload & {
   prompt: string;
+  locale?: string;
   items: Array<{
     id: string;
     emoji?: string;
-    label_bn: string;
+    label?: string;
+    label_bn?: string;
+    description?: string;
     description_bn?: string;
     image_url?: string;
   }>;
@@ -127,24 +137,30 @@ export type TapPayload = BasePayload & {
 export type LetterPayload = BasePayload & {
   letter: string;
   sound?: string;
+  locale?: string;
   examples?: Array<{
+    id?: string;
     emoji?: string;
-    word_bn: string;
+    word?: string;
+    word_bn?: string;
     image_url?: string;
     audio_url?: string;
   }>;
 };
 
 export type WordBuildPayload = BasePayload & {
+  locale?: string;
   letters: string[];
   answer: string;
 };
 
 export type PictureChoicePayload = BasePayload & {
   question: string;
+  locale?: string;
   options: Array<{
     emoji?: string;
-    label_bn: string;
+    label?: string;
+    label_bn?: string;
     image_url?: string;
   }>;
   answer: number;
@@ -152,10 +168,14 @@ export type PictureChoicePayload = BasePayload & {
 
 export type DragGamePayload = BasePayload & {
   prompt: string;
+  locale?: string;
   items: Array<{
+    id?: string;
     emoji?: string;
+    label?: string;
     label_bn?: string;
     target: string;
+    image_url?: string;
   }>;
 };
 
@@ -190,6 +210,7 @@ export type PuzzleItem = {
 
 export type PuzzlePayload = BasePayload & {
   mode: PuzzleMode;
+  locale?: string;
   prompt: string;
   voice_text?: string;
   hint?: string;

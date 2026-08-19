@@ -6,6 +6,7 @@ import React, {
 } from "react";
 import {
   Animated,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -22,6 +23,9 @@ type Props = {
     instruction?: string;
     data: {
       lines: string[];
+      speechText?: string;
+      imageUrl?: string;
+      locale?: string;
       buttonText?: string;
       character?: string;
       animation?: string;
@@ -30,14 +34,15 @@ type Props = {
   onComplete: () => void;
 };
 
-function speakBangla(
+function speakText(
   text: string,
   onTalkingChange: (value: boolean) => void,
+  language = "bn-BD",
 ) {
   void Speech.stop();
 
   Speech.speak(text, {
-    language: "bn-BD",
+    language,
     rate: 0.74,
     pitch: 1.05,
     volume: 1,
@@ -100,8 +105,9 @@ export default function AnimatedStoryActivity({
     }, 34);
 
     const speechTimer = setTimeout(() => {
-      if (currentLine) {
-        speakBangla(currentLine, setIsTalking);
+      const speech = activity.data.speechText || currentLine;
+      if (speech) {
+        speakText(speech, setIsTalking, activity.data.locale);
       }
     }, 260);
 
@@ -111,7 +117,13 @@ export default function AnimatedStoryActivity({
       entranceAnimation.stop();
       void Speech.stop();
     };
-  }, [cardEntrance, currentLine, lineIndex]);
+  }, [
+    activity.data.locale,
+    activity.data.speechText,
+    cardEntrance,
+    currentLine,
+    lineIndex,
+  ]);
 
   useEffect(() => {
     const pulseAnimation = Animated.loop(
@@ -183,9 +195,17 @@ export default function AnimatedStoryActivity({
   if (lines.length === 0) {
     return (
       <View style={styles.emptyCard}>
-        <Text style={styles.emptyEmoji}>📭</Text>
+        {activity.data.imageUrl ? (
+          <Image
+            source={{ uri: activity.data.imageUrl }}
+            style={styles.imageOnly}
+            resizeMode="contain"
+          />
+        ) : (
+          <Text style={styles.emptyEmoji}>📭</Text>
+        )}
         <Text style={styles.emptyTitle}>
-          গল্পের লেখা পাওয়া যায়নি
+          {activity.data.imageUrl ? activity.title ?? "ছবি দেখে শিখি" : "গল্পের লেখা পাওয়া যায়নি"}
         </Text>
         <Pressable
           onPress={onComplete}
@@ -208,7 +228,7 @@ export default function AnimatedStoryActivity({
 
         <View style={styles.headerCopy}>
           <Text style={styles.headerEyebrow}>
-            STORY QUEST
+            গল্পের অভিযান
           </Text>
           <Text
             style={[
@@ -255,8 +275,8 @@ export default function AnimatedStoryActivity({
             <Text style={styles.talkingDot}>●</Text>
             <Text style={styles.talkingText}>
               {isTalking
-                ? "MIMI IS TALKING"
-                : "MIMI GUIDE"}
+                ? "মিমি বলছে"
+                : "মিমি গাইড"}
             </Text>
           </View>
         </View>
@@ -290,7 +310,11 @@ export default function AnimatedStoryActivity({
               accessibilityRole="button"
               accessibilityLabel="গল্পটি আবার শুনি"
               onPress={() =>
-                speakBangla(currentLine, setIsTalking)
+                speakText(
+                  activity.data.speechText || currentLine,
+                  setIsTalking,
+                  activity.data.locale,
+                )
               }
               style={({ pressed }) => [
                 styles.listenButton,
@@ -305,6 +329,14 @@ export default function AnimatedStoryActivity({
               ) : null}
             </Pressable>
           </View>
+
+          {activity.data.imageUrl ? (
+            <Image
+              source={{ uri: activity.data.imageUrl }}
+              style={styles.storyImage}
+              resizeMode="contain"
+            />
+          ) : null}
 
           <Text
             style={[
@@ -352,8 +384,8 @@ export default function AnimatedStoryActivity({
           <View style={styles.nextCopy}>
             <Text style={styles.nextEyebrow}>
               {isLastLine
-                ? "QUEST COMPLETE"
-                : "NEXT STORY"}
+                ? "এই অংশ শেষ"
+                : "পরের অংশ"}
             </Text>
             <Text style={styles.nextText}>
               {isLastLine
@@ -370,7 +402,7 @@ export default function AnimatedStoryActivity({
       <View style={styles.rewardHint}>
         <Text style={styles.rewardHintIcon}>⭐</Text>
         <Text style={styles.rewardHintText}>
-          সব অংশ শেষ করলে mission progress বাড়বে
+          সব অংশ শেষ করলে শেখার অগ্রগতি বাড়বে
         </Text>
       </View>
     </View>
@@ -560,6 +592,13 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#277AA5",
   },
+  storyImage: {
+    width: "100%",
+    height: 190,
+    marginBottom: 14,
+    borderRadius: 18,
+    backgroundColor: "#F8F4FD",
+  },
   storyText: {
     minHeight: 74,
     marginTop: 17,
@@ -670,6 +709,12 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
     paddingVertical: 36,
+  },
+  imageOnly: {
+    width: "100%",
+    height: 230,
+    marginBottom: 14,
+    borderRadius: 20,
   },
   emptyEmoji: {
     fontSize: 42,

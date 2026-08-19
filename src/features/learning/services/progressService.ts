@@ -132,9 +132,11 @@ async function syncQuizAttempts(
       );
 
     if (questionOptions.length < 2) {
-      throw new Error(
-        "Published quiz question-এর options পাওয়া যায়নি।",
+      if (__DEV__) console.log(
+        "Skipping cloud quiz sync because the published question has fewer than two options:",
+        question.id,
       );
+      continue;
     }
 
     const localResult = normalizeQuestionResult(
@@ -161,16 +163,27 @@ async function syncQuizAttempts(
         questionOptions[selectedOptionIndex];
 
       if (!selectedOption) {
-        throw new Error(
-          "Quiz option sync করা যায়নি: saved option index আর current published options মিলছে না।",
+        if (__DEV__) console.log(
+          "Skipping one cloud quiz attempt because the saved option index no longer matches published options:",
+          question.id,
+          selectedOptionIndex,
         );
+        continue;
       }
 
-      await submitQuizAnswer(
-        studentId,
-        question.id,
-        selectedOption.id,
-      );
+      try {
+        await submitQuizAnswer(
+          studentId,
+          question.id,
+          selectedOption.id,
+        );
+      } catch (error) {
+        if (__DEV__) console.log(
+          "Cloud quiz attempt will be retried later:",
+          question.id,
+          error,
+        );
+      }
     }
   }
 }

@@ -18,6 +18,7 @@ import MimiCharacter from "./MimiCharacter";
 type Flashcard = {
   emoji: string;
   word: string;
+  speechText?: string;
   imageUrl?: string;
 };
 
@@ -25,17 +26,18 @@ type Props = {
   activity: {
     payload: {
       prompt: string;
+      locale?: string;
       cards: Flashcard[];
     };
   };
   onComplete: () => void;
 };
 
-function speakBangla(text: string) {
+function speakText(text: string, language = "bn-BD") {
   void Speech.stop();
 
   Speech.speak(text, {
-    language: "bn-BD",
+    language,
     rate: 0.74,
     pitch: 1.05,
   });
@@ -70,7 +72,7 @@ export default function FlashcardActivity({
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      speakBangla(data.prompt);
+      speakText(data.prompt, data.locale);
     }, 350);
 
     if (
@@ -120,7 +122,7 @@ export default function FlashcardActivity({
         : [...current, index],
     );
 
-    speakBangla(currentCard.word);
+    speakText(currentCard.speechText || currentCard.word, data.locale);
   };
 
   const goPrevious = () => {
@@ -134,7 +136,7 @@ export default function FlashcardActivity({
 
   const goNext = () => {
     if (!revealed) {
-      speakBangla(
+      speakText(
         "আগে কার্ডে চাপ দিয়ে শব্দটি দেখো।",
       );
       return;
@@ -150,7 +152,7 @@ export default function FlashcardActivity({
       setIndex(0);
       setRevealed(false);
 
-      speakBangla(
+      speakText(
         "যে কার্ডগুলো দেখা হয়নি সেগুলো আবার দেখো।",
       );
 
@@ -164,7 +166,7 @@ export default function FlashcardActivity({
     completedRef.current = true;
     setCompleted(true);
 
-    speakBangla(
+    speakText(
       "দারুণ! তুমি সবগুলো শব্দ শিখেছো।",
     );
 
@@ -196,7 +198,7 @@ export default function FlashcardActivity({
 
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>
-            MEMORY QUEST
+            মনে রাখার খেলা
           </Text>
 
           <Text
@@ -250,7 +252,7 @@ export default function FlashcardActivity({
           </Text>
 
           <Text style={styles.guideText}>
-            MEMORY COACH
+            মিমি গাইড
           </Text>
         </View>
 
@@ -273,7 +275,7 @@ export default function FlashcardActivity({
 
           <Pressable
             onPress={() =>
-              speakBangla(data.prompt)
+              speakText(data.prompt, data.locale)
             }
             style={({ pressed }) => [
               styles.listenButton,
@@ -299,8 +301,8 @@ export default function FlashcardActivity({
         <View style={styles.cardTop}>
           <Text style={styles.cardLabel}>
             {revealed
-              ? "WORD UNLOCKED"
-              : "MYSTERY CARD"}
+              ? "শিখে ফেলেছি"
+              : "নতুন কার্ড"}
           </Text>
 
           <Text style={styles.cardNumber}>
@@ -422,12 +424,12 @@ export default function FlashcardActivity({
           <View style={styles.nextCopy}>
             <Text style={styles.nextEyebrow}>
               {completed
-                ? "MISSION CLEARED"
+                ? "সবগুলো শিখেছি"
                 : allCardsSeen &&
                     index ===
                       cards.length - 1
-                  ? "FINAL STEP"
-                  : "NEXT CARD"}
+                  ? "শেষ ধাপ"
+                  : "পরের কার্ড"}
             </Text>
 
             <Text style={styles.nextText}>
