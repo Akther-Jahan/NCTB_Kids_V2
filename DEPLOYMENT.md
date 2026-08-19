@@ -11,7 +11,8 @@
 - Release builds do not silently replace Supabase failures with local lessons.
 - Empty chapters are hidden until at least one activity is published.
 - Demo admin, demo donation, and demo leaderboard routes are excluded from the release navigator.
-- The current release does not request microphone permission.
+- Voice Activity intentionally requests microphone permission for listen-and-repeat pronunciation practice.
+- The current Voice Activity records to a local recorder URI for immediate playback/re-recording and does not contain a server upload call for the recorded voice.
 
 ## 1. Install and sign in to EAS
 
@@ -91,6 +92,9 @@ Install the APK on at least two physical Android devices and test:
 8. Parent registration, login, link request, and logout.
 9. Privacy-policy link.
 10. Account-deletion request link.
+11. Voice Activity target-audio/TTS playback.
+12. Microphone permission granted flow: record, stop, play the child's recording, re-record, and complete the activity.
+13. Microphone permission denied flow: the app must remain usable and show a clear permission message without crashing.
 
 ## 5. Create a Google Play AAB
 
@@ -129,6 +133,9 @@ production access can be requested.
 - Public account-deletion request URL.
 - The same developer/entity name in the Play listing and privacy policy.
 - A monitored privacy/contact email.
+- Privacy policy must explain that microphone access is used for pronunciation practice and describe whether voice recordings remain on-device or are transmitted.
+- In the current implementation, Voice Activity itself keeps the recording on-device for immediate playback and does not upload the recorded audio. Re-audit this if cloud speech recognition, analytics, or audio upload is added later.
+- Google Play Data safety answers must reflect the full built app and all SDKs. Google Play defines data as collected when it is transmitted off-device; therefore verify that no SDK transmits voice/audio before declaring on-device voice practice as not collected.
 - Accurate Data safety answers for Supabase authentication and stored progress.
 - Supabase RLS and RPC authorization review.
 - Store icon, feature graphic, phone screenshots, short description, and full
@@ -140,6 +147,8 @@ production access can be requested.
 - EAS Build: https://docs.expo.dev/build/introduction/
 - EAS environment variables: https://docs.expo.dev/eas/environment-variables/
 - EAS Submit for Android: https://docs.expo.dev/submit/android/
+- Expo Audio: https://docs.expo.dev/versions/v54.0.0/sdk/audio/
+- Google Play Data safety: https://support.google.com/googleplay/android-developer/answer/10787469
 - Google Play testing requirements:
   https://support.google.com/googleplay/android-developer/answer/14151465
 - Google Play Families policy:
