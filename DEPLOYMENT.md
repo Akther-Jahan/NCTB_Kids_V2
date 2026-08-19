@@ -70,6 +70,7 @@ applied in this order:
 4. supabase/migrations/PARENT_SETS_CHILD_NAME_MIGRATION.sql
 5. supabase/migrations/PARENT_LINKED_RECOVERY_MIGRATION.sql
 6. supabase/migrations/202608190001_harden_parent_child_recovery.sql
+7. supabase/migrations/202608190002_lock_trigger_helpers.sql
 ```
 
 The application currently depends on RPCs introduced by the recovery/linking
@@ -81,15 +82,16 @@ request_parent_link_with_name(text, text)
 recover_linked_child(uuid, uuid)
 ```
 
-The final hardening migration keeps the same mobile API contract but adds
-release security checks:
+The release hardening migrations keep the same mobile API contract but add
+security checks:
 
 - anonymous child sessions cannot submit parent link requests;
 - parent RPCs require a permanent parent/admin profile;
 - child recovery can only attach to an anonymous child-device session;
 - expired pending parent-link requests are marked expired before a replacement
   request is inserted;
-- RPC execute grants are re-applied restrictively.
+- RPC execute grants are re-applied restrictively;
+- database-only trigger helpers are not directly executable from client roles.
 
 See `supabase/MIGRATION_ORDER.md` for the complete migration notes.
 
@@ -101,6 +103,34 @@ standard Supabase CLI timestamp migration filename format. Do not blindly run
 history until the real remote schema/history has been inspected. Normalize the
 migration history as a separate maintenance task once remote Supabase access is
 available.
+
+## 2.2 Run the read-only Supabase security release gate
+
+After the migrations above are present in the real Supabase project, run:
+
+```text
+supabase/release_security_audit.sql
+```
+
+in Supabase Dashboard → SQL Editor.
+
+The audit is read-only. Before production release, review all result sets and
+investigate every section labelled `FAILURE QUERY`.
+
+Release expectations include:
+
+- every required public table exists and has RLS enabled;
+- every public `SECURITY DEFINER` function has a fixed `search_path`;
+- all app-required RPCs exist;
+- sensitive RPCs are not executable by `anon` or `PUBLIC`;
+- trigger helper functions are not directly executable by client roles;
+- public table policies match the intended child/parent/staff access model;
+- the `content-assets` Supabase Storage bucket exists if Admin CMS upload is used;
+- Storage INSERT/UPDATE/DELETE policies are restricted to authorized staff/admin accounts.
+
+Do not treat a successful SQL execution by itself as a pass. The returned
+policy expressions and function privileges must match the intended release
+access model.
 
 ## 3. Run release checks
 
@@ -132,11 +162,13 @@ Install the APK on at least two physical Android devices and test:
 9. A parent link request can be retried after an older pending request has expired.
 10. Student recovery with Student ID + recovery code on a new anonymous child session.
 11. Parent-assisted recovery of an already-linked child onto a new anonymous child session.
-12. Privacy-policy link.
-13. Account-deletion request link.
-14. Voice Activity target-audio/TTS playback.
-15. Microphone permission granted flow: record, stop, play the child's recording, re-record, and complete the activity.
-16. Microphone permission denied flow: the app must remain usable and show a clear permission message without crashing.
+12. Admin CMS login with an authorized staff account and rejection of a normal parent account.
+13. Admin CMS learning-asset upload to `content-assets`, if the upload feature will be used in production.
+14. Privacy-policy link.
+15. Account-deletion request link.
+16. Voice Activity target-audio/TTS playback.
+17. Microphone permission granted flow: record, stop, play the child's recording, re-record, and complete the activity.
+18. Microphone permission denied flow: the app must remain usable and show a clear permission message without crashing.
 
 ## 5. Create a Google Play AAB
 
@@ -179,7 +211,7 @@ production access can be requested.
 - In the current implementation, Voice Activity itself keeps the recording on-device for immediate playback and does not upload the recorded audio. Re-audit this if cloud speech recognition, analytics, or audio upload is added later.
 - Google Play Data safety answers must reflect the full built app and all SDKs. Verify that no SDK transmits voice/audio before declaring on-device voice practice as not collected.
 - Accurate Data safety answers for Supabase authentication and stored progress.
-- Supabase RLS and RPC authorization review.
+- Supabase RLS, RPC authorization, trigger-helper privileges, and Storage policy review.
 - Store icon, feature graphic, phone screenshots, short description, and full description.
 - Tester feedback contact and a basic test record.
 
