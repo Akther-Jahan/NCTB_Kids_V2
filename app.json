@@ -35,7 +35,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "NCTB Kids-কে তোমার কথা রেকর্ড করার জন্য মাইক্রোফোন ব্যবহার করতে দাও।",
+          "microphonePermission": "শুনে-বলার অনুশীলনে তোমার কণ্ঠ রেকর্ড ও আবার শুনতে NCTB Kids-কে মাইক্রোফোন ব্যবহার করতে দাও।",
           "recordAudioAndroid": true
         }
       ]
