@@ -36,11 +36,15 @@ Before the Android preview/production build, verify that these scripts have been
    - marks expired pending link requests as expired before inserting a replacement request
    - re-applies restrictive EXECUTE grants for the hardened RPCs
 
+7. `migrations/202608190002_lock_trigger_helpers.sql`
+   - removes direct client EXECUTE access from database-only trigger helper functions
+   - keeps `handle_new_auth_user()` and `apply_approved_parent_child_name()` trigger-only
+
 ## Important legacy filename note
 
 Three historical SQL scripts above use legacy descriptive filenames instead of the standard Supabase CLI `<timestamp>_<name>.sql` migration format. They are kept unchanged here because the existing remote database may already have been modified with these scripts manually, and renaming/replaying historical migrations without checking remote migration history can create drift.
 
-For the current release, treat the six scripts above as an **explicit existing-project release checklist**.
+For the current release, treat the seven scripts above as an **explicit existing-project release checklist**.
 
 ## Before switching to fully CLI-managed migrations
 
@@ -58,10 +62,14 @@ Do not use migration-history repair commands by guesswork. The remote schema/his
 
 Run `../supabase/release_security_audit.sql` in read-only review mode and verify at minimum:
 
-- RLS is enabled on sensitive public tables.
-- child/parent access policies match the intended roles.
-- `request_parent_link_with_name(text, text)` is executable only by `authenticated`, while the function itself rejects anonymous authenticated users.
-- `restore_student_by_recovery_code(text, text)` is executable only by `authenticated`, while the function itself accepts only anonymous child sessions.
-- `recover_linked_child(uuid, uuid)` is executable only by `authenticated`, while the function verifies both the permanent parent and anonymous child-device identities.
+- every required public table exists and has RLS enabled;
+- child/parent access policies match the intended roles;
+- every public `SECURITY DEFINER` function has a fixed `search_path`;
+- `request_parent_link_with_name(text, text)` is executable only by `authenticated`, while the function itself rejects anonymous authenticated users;
+- `restore_student_by_recovery_code(text, text)` is executable only by `authenticated`, while the function itself accepts only anonymous child sessions;
+- `recover_linked_child(uuid, uuid)` is executable only by `authenticated`, while the function verifies both the permanent parent and anonymous child-device identities;
+- trigger helpers are not directly executable by `anon`, `authenticated`, or `PUBLIC`;
+- the `content-assets` Storage bucket exists if the Admin CMS upload feature will be used;
+- Storage write policies allow only authorized admin/content-creator accounts to upload or modify learning assets.
 
-Then smoke-test parent linking, expired-request retry, student recovery, and parent-assisted child recovery in the preview APK.
+Then smoke-test parent linking, expired-request retry, student recovery, parent-assisted child recovery, and Admin CMS asset upload in the preview environment.
