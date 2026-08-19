@@ -7,30 +7,53 @@
 - Preview profile builds an installable APK.
 - Production profile builds a Google Play AAB.
 - Build numbers are managed remotely and auto-incremented by EAS.
+- `preview` and `production` build profiles explicitly use their matching EAS environments.
 - Supabase curriculum is enabled through EAS environment variables.
+- Release builds now fail early if required EAS client configuration is missing or still contains placeholder values.
 - Release builds do not silently replace Supabase failures with local lessons.
 - Empty chapters are hidden until at least one activity is published.
 - Mobile release navigation does not bundle the admin login/dashboard/content/quiz editor screens; staff content management remains in the separate web admin CMS.
 - Voice Activity intentionally requests microphone permission for listen-and-repeat pronunciation practice.
 - The current Voice Activity records to a local recorder URI for immediate playback/re-recording and does not contain a server upload call for the recorded voice.
 
-## 1. Install and sign in to EAS
+## 1. Install EAS CLI and verify Expo project access
 
 Run these commands from the project root:
 
 ```bash
 npm install --global eas-cli
 eas login
-eas init
+eas whoami
+eas project:info
 ```
 
-`eas init` creates or links the Expo project and writes its real project ID into
-the app configuration. The build profiles are already defined in `eas.json`.
+This repository is already linked to an EAS project in `app.json`:
 
-## 2. Add EAS environment variables
+```text
+owner: ahanajinnats-team
+slug: nctb-kids
+projectId: 60332e2e-a66e-44c8-a72a-80cefb9dcfa6
+```
 
-Create the following variables in both the `preview` and `production`
-environments:
+Do **not** run `eas init` just because you are preparing a new build. `eas init`
+creates or relinks an EAS project and can overwrite the existing project link
+when used incorrectly.
+
+`eas project:info` must succeed for the Expo account shown by `eas whoami` and
+must resolve the existing NCTB Kids project. If it reports a permission/access
+problem, fix the Expo account or `ahanajinnats-team` membership instead of
+creating a new EAS project by guesswork.
+
+## 2. Configure EAS environment variables
+
+The build profiles already select the intended EAS environments:
+
+```text
+preview build -> EAS preview environment -> APK
+production build -> EAS production environment -> AAB
+```
+
+Create these variables in **both** `preview` and `production`:
 
 ```text
 EXPO_PUBLIC_SUPABASE_URL
@@ -38,20 +61,66 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY
 EXPO_PUBLIC_USE_REMOTE_CURRICULUM=true
 EXPO_PUBLIC_PRIVACY_POLICY_URL
 EXPO_PUBLIC_ACCOUNT_DELETION_URL
+EXPO_PUBLIC_PASSWORD_RESET_REDIRECT_URL=nctbkids://reset-password
 ```
 
-These are client-side configuration values and must use EAS `plaintext`
-visibility. They can be added from the Expo project dashboard under
-Project settings → Environment variables or with `eas env:set`.
+Optional:
 
-Verify each environment:
+```text
+EXPO_PUBLIC_API_BASE_URL
+```
+
+`EXPO_PUBLIC_API_BASE_URL` may remain unset while the app does not require a
+separate backend API.
+
+These values are used by client-side code and are compiled into the app. Never
+put a Supabase `service_role` key, database password, private API secret, or any
+other server-only secret in an `EXPO_PUBLIC_*` variable.
+
+For this release, the public URLs must be real HTTPS URLs. Do not leave values
+such as `YOUR_PROJECT`, `YOUR_PUBLIC_ANON_KEY`, or `YOUR_PUBLIC_SITE` in EAS.
+
+You can configure variables from Expo project settings or with commands such as:
+
+```bash
+eas env:set --name EXPO_PUBLIC_USE_REMOTE_CURRICULUM --value true --environment preview --visibility plaintext
+eas env:set --name EXPO_PUBLIC_USE_REMOTE_CURRICULUM --value true --environment production --visibility plaintext
+```
+
+Use the real value for each remaining variable and repeat it for the required
+environment.
+
+Verify the names configured in each environment:
 
 ```bash
 eas env:list --environment preview
 eas env:list --environment production
 ```
 
-Do not upload the local `.env` file. It is excluded by `.easignore`.
+Do not paste private server credentials into GitHub, `.env.example`, or the
+mobile app. Local `.env` files are excluded from EAS uploads by `.easignore`.
+
+### Automatic release-environment gate
+
+`scripts/validate-eas-env.mjs` checks the selected EAS build environment before
+EAS installs project dependencies. It blocks the build when:
+
+- a required release variable is missing;
+- a value still contains a repository placeholder;
+- Supabase/privacy/account-deletion URLs are not valid HTTPS URLs;
+- `EXPO_PUBLIC_USE_REMOTE_CURRICULUM` is not exactly `true`;
+- the password-reset redirect is not `nctbkids://reset-password`;
+- an optional API base URL is configured but is not a valid HTTPS URL.
+
+EAS automatically runs this through the `eas-build-pre-install` npm lifecycle
+hook. It does not print the Supabase key value to build logs.
+
+If you intentionally load the same environment variables into your local shell,
+you can also run:
+
+```bash
+npm run check:release-env
+```
 
 ## 2.1 Verify the Supabase release migrations
 
@@ -112,7 +181,7 @@ After the migrations above are present in the real Supabase project, run:
 supabase/release_security_audit.sql
 ```
 
-in Supabase Dashboard → SQL Editor.
+in Supabase Dashboard -> SQL Editor.
 
 The audit is read-only. Before production release, review all result sets and
 investigate every section labelled `FAILURE QUERY`.
@@ -143,11 +212,18 @@ npm run export:android
 
 All checks must pass before starting a cloud build.
 
+The local `expo export` check does not automatically prove that the remote EAS
+`preview` or `production` environment is correct. The EAS build-time validator
+is the final configuration guard for cloud builds.
+
 ## 4. Create a preview APK
 
 ```bash
 npm run build:preview
 ```
+
+The `preview` profile uses the EAS `preview` environment and produces an
+installable Android APK.
 
 Install the APK on at least two physical Android devices and test:
 
@@ -166,9 +242,10 @@ Install the APK on at least two physical Android devices and test:
 13. Admin CMS learning-asset upload to `content-assets`, if the upload feature will be used in production.
 14. Privacy-policy link.
 15. Account-deletion request link.
-16. Voice Activity target-audio/TTS playback.
-17. Microphone permission granted flow: record, stop, play the child's recording, re-record, and complete the activity.
-18. Microphone permission denied flow: the app must remain usable and show a clear permission message without crashing.
+16. Password-reset deep link returns to `nctbkids://reset-password`.
+17. Voice Activity target-audio/TTS playback.
+18. Microphone permission granted flow: record, stop, play the child's recording, re-record, and complete the activity.
+19. Microphone permission denied flow: the app must remain usable and show a clear permission message without crashing.
 
 ## 5. Create a Google Play AAB
 
@@ -178,8 +255,11 @@ After preview testing passes:
 npm run build:production
 ```
 
+The `production` profile uses the EAS `production` environment and produces an
+Android App Bundle.
+
 Allow EAS to create and securely manage the Android upload keystore. Preserve
-access to the Expo account that owns the credentials.
+access to the Expo account/team that owns the project and credentials.
 
 ## 6. Google Play testing
 
@@ -218,7 +298,9 @@ production access can be requested.
 ## Official references
 
 - EAS Build: https://docs.expo.dev/build/introduction/
+- EAS CLI: https://docs.expo.dev/eas/cli/
 - EAS environment variables: https://docs.expo.dev/eas/environment-variables/
+- EAS build lifecycle hooks: https://docs.expo.dev/build-reference/npm-hooks/
 - EAS Submit for Android: https://docs.expo.dev/submit/android/
 - Expo Audio: https://docs.expo.dev/versions/v54.0.0/sdk/audio/
 - Supabase database migrations: https://supabase.com/docs/guides/deployment/database-migrations
