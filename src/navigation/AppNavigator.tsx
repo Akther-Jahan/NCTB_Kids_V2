@@ -13,10 +13,7 @@ import ParentDashboardScreen from "../features/parent/screens/ParentDashboardScr
 import LoginScreen from "../features/auth/screens/LoginScreen";
 import RegisterScreen from "../features/auth/screens/RegisterScreen";
 import ForgotPasswordScreen from "../features/auth/screens/ForgotPasswordScreen";
-import AdminLoginScreen from "../features/admin/screens/AdminLoginScreen";
-import LiveOverview from "../features/admin/components/LiveOverview";
-import AdminContentEditorScreenV2 from "../features/admin/screens/AdminContentEditorScreenV2";
-import AdminQuizEditorScreen from "../features/admin/screens/AdminQuizEditorScreen";
+import AdminWebOnlyScreen from "../screens/AdminWebOnlyScreen";
 
 const Stack =
   createNativeStackNavigator<RootStackParamList>();
@@ -86,19 +83,7 @@ export default function AppNavigator() {
 
       <Stack.Screen
         name="AdminLogin"
-        component={AdminLoginScreen}
-      />
-      <Stack.Screen
-        name="AdminDashboard"
-        component={LiveOverview}
-      />
-      <Stack.Screen
-        name="AdminContentEditor"
-        component={AdminContentEditorScreenV2}
-      />
-      <Stack.Screen
-        name="AdminQuizEditor"
-        component={AdminQuizEditorScreen}
+        component={AdminWebOnlyScreen}
       />
     </Stack.Navigator>
   );
