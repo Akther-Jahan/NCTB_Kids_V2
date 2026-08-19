@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "doctor": "npx expo-doctor",
     "export:android": "expo export --platform android --output-dir dist/android",
+    "check:release-env": "node scripts/validate-eas-env.mjs",
+    "eas-build-pre-install": "node scripts/validate-eas-env.mjs",
     "build:preview": "eas build --platform android --profile preview",
     "build:production": "eas build --platform android --profile production",
     "submit:android": "eas submit --platform android --profile production"
