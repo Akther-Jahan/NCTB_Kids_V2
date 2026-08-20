@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -49,40 +49,94 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
   const [message, setMessage] = useState("");
   const [finished, setFinished] = useState(false);
 
+  // expo-audio objects are native shared objects. These refs prevent two
+  // overlapping prepare/stop operations and prevent cleanup from racing
+  // against an in-flight recording operation.
+  const recordingBusyRef = useRef(false);
+  const mountedRef = useRef(true);
+  const completedRef = useRef(false);
+
   const targetText = useMemo(
     () => String(data.word || data.prompt || "").trim(),
     [data.prompt, data.word],
   );
 
   useEffect(() => {
+    mountedRef.current = true;
+
     return () => {
+      mountedRef.current = false;
+      completedRef.current = true;
+
+      // Do not call player.pause() here. useAudioPlayer owns the native
+      // player lifecycle and releases it during unmount. Calling pause() from
+      // cleanup can hit an already-released shared object.
       void stopLearningVoice();
-      player.pause();
-      void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+
+      if (recorderState.isRecording) {
+        void (async () => {
+          try {
+            await recorder.stop();
+          } catch {
+            // The recorder may already have been released during unmount.
+          }
+          try {
+            await setAudioModeAsync({
+              allowsRecording: false,
+              playsInSilentMode: true,
+            });
+          } catch {
+            // Audio mode cleanup must never crash the app.
+          }
+        })();
+      } else {
+        void setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        }).catch(() => undefined);
+      }
     };
-  }, [player]);
+  }, [recorder, recorderState.isRecording]);
 
   const playTarget = async () => {
+    if (completedRef.current) return;
+
     setMessage("");
     await stopLearningVoice();
 
     const source = String(data.audioUrl ?? "").trim();
     if (source) {
-      player.pause();
-      player.replace(source);
-      player.play();
+      try {
+        player.pause();
+        player.replace(source);
+        player.play();
+      } catch (error) {
+        if (__DEV__) console.log("Voice target audio could not play:", error);
+        if (targetText) {
+          await speakLearningVoice(targetText, {
+            language: data.locale ?? "en-US",
+            rate: 0.72,
+          });
+        }
+      }
       return;
     }
 
     if (targetText) {
       await speakLearningVoice(targetText, {
-        language: data.locale ?? "bn-BD",
+        language: data.locale ?? "en-US",
         rate: 0.72,
       });
     }
   };
 
   const startRecording = async () => {
+    if (completedRef.current || recordingBusyRef.current || recorderState.isRecording) {
+      return;
+    }
+
+    recordingBusyRef.current = true;
+
     try {
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
@@ -94,24 +148,41 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
       }
 
       await stopLearningVoice();
-      player.pause();
+      try {
+        player.pause();
+      } catch {
+        // Player can already be stopped/released; recording can continue.
+      }
+
+      if (recorderState.isRecording) return;
+
       setRecordedUri(null);
       setMessage("");
       setFinished(false);
+      completedRef.current = false;
 
       await setAudioModeAsync({
         allowsRecording: true,
         playsInSilentMode: true,
       });
+
       await recorder.prepareToRecordAsync();
       recorder.record();
     } catch (error) {
       if (__DEV__) console.log("Voice recording could not start:", error);
-      setMessage("রেকর্ড শুরু করা যায়নি। আবার চেষ্টা করো।");
+      if (mountedRef.current) {
+        setMessage("রেকর্ড শুরু করা যায়নি। আবার চেষ্টা করো।");
+      }
+    } finally {
+      recordingBusyRef.current = false;
     }
   };
 
   const stopRecording = async () => {
+    if (recordingBusyRef.current || !recorderState.isRecording) return;
+
+    recordingBusyRef.current = true;
+
     try {
       await recorder.stop();
       await setAudioModeAsync({
@@ -120,26 +191,58 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
       });
 
       const uri = recorder.uri ?? null;
+      if (!mountedRef.current) return;
+
       setRecordedUri(uri);
-      setMessage(uri ? "দারুণ! এবার নিজের কথাটা শুনে দেখো 🎧" : "রেকর্ডটি পাওয়া যায়নি। আবার চেষ্টা করো।");
+      setMessage(
+        uri
+          ? "দারুণ! এবার নিজের কথাটা শুনে দেখো 🎧"
+          : "রেকর্ডটি পাওয়া যায়নি। আবার চেষ্টা করো।",
+      );
     } catch (error) {
       if (__DEV__) console.log("Voice recording could not stop:", error);
-      setMessage("রেকর্ডটি শেষ করা যায়নি। আবার চেষ্টা করো।");
+      if (mountedRef.current) {
+        setMessage("রেকর্ডটি শেষ করা যায়নি। আবার চেষ্টা করো।");
+      }
+    } finally {
+      recordingBusyRef.current = false;
     }
   };
 
   const playRecording = async () => {
-    if (!recordedUri) return;
+    if (!recordedUri || completedRef.current) return;
+
     await stopLearningVoice();
-    player.pause();
-    player.replace(recordedUri);
-    player.play();
+
+    try {
+      player.pause();
+      player.replace(recordedUri);
+      player.play();
+    } catch (error) {
+      if (__DEV__) console.log("Recorded audio could not play:", error);
+      if (mountedRef.current) {
+        setMessage("রেকর্ডটি চালানো যায়নি। আবার রেকর্ড করো।");
+      }
+    }
   };
 
-  const finishPractice = () => {
-    if (!recordedUri || finished) return;
+  const finishPractice = async () => {
+    if (!recordedUri || finished || completedRef.current || recordingBusyRef.current) return;
+
+    completedRef.current = true;
     setFinished(true);
     setMessage("চমৎকার! এই অনুশীলন শেষ হয়েছে 🌟");
+
+    // Stop audio BEFORE notifying the parent. The parent may immediately
+    // unmount this component, so no native player operation should remain
+    // after onComplete() starts the navigation/completion flow.
+    await stopLearningVoice();
+    try {
+      if (playerStatus.playing) player.pause();
+    } catch {
+      // Ignore an already-released/stopped player.
+    }
+
     onComplete();
   };
 
@@ -187,7 +290,7 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
             ? "বলা শেষ হলে নিচের Stop বোতামে চাপ দাও।"
             : recordedUri
               ? "নিজের কথা শোনো, চাইলে আবার রেকর্ড করো।"
-              : "রেকর্ড চাপ দিয়ে শব্দটি পরিষ্কার করে বলো।"}
+              : "রেকর্ড চাপ দিয়ে শব্দটি পরিষ্কার করে বলো."}
         </Text>
 
         <Pressable
@@ -208,7 +311,7 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
             <Pressable
               accessibilityRole="button"
               disabled={finished}
-              onPress={finishPractice}
+              onPress={() => void finishPractice()}
               style={[styles.doneButton, finished && styles.doneButtonFinished]}
             >
               <Text style={styles.doneButtonText}>{finished ? "✓ হয়ে গেছে" : "হয়ে গেছে ✓"}</Text>
@@ -227,119 +330,37 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    width: "100%",
-    alignItems: "center",
-  },
-  hero: {
-    width: "100%",
-    alignItems: "center",
-    paddingTop: 2,
-    paddingBottom: 14,
-    borderRadius: 28,
-    backgroundColor: "#E8DFFA",
-  },
-  guidePill: {
-    marginTop: -12,
-    paddingHorizontal: 13,
-    paddingVertical: 7,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 18,
-    backgroundColor: "#2D2831",
-  },
+  container: { width: "100%", alignItems: "center" },
+  hero: { width: "100%", alignItems: "center", paddingTop: 2, paddingBottom: 14, borderRadius: 28, backgroundColor: "#E8DFFA" },
+  guidePill: { marginTop: -12, paddingHorizontal: 13, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 18, backgroundColor: "#2D2831" },
   guideDot: { color: "#63D67A", fontSize: 9 },
   guideText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" },
-  promptCard: {
-    width: "100%",
-    marginTop: 14,
-    padding: 16,
-    borderRadius: 24,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E8E1EC",
-  },
+  promptCard: { width: "100%", marginTop: 14, padding: 16, borderRadius: 24, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E8E1EC" },
   promptTopRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   promptCopy: { flex: 1 },
   promptEyebrow: { fontSize: 10, fontWeight: "900", color: "#8A8090" },
   promptText: { marginTop: 4, fontSize: 18, lineHeight: 26, fontWeight: "900", color: "#2C2630" },
-  listenButton: {
-    minWidth: 64,
-    minHeight: 58,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#E9F6FF",
-  },
+  listenButton: { minWidth: 64, minHeight: 58, paddingHorizontal: 10, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#E9F6FF" },
   listenIcon: { fontSize: 20 },
   listenLabel: { marginTop: 2, fontSize: 9, fontWeight: "900", color: "#287DA4" },
-  wordStage: {
-    minHeight: 126,
-    marginTop: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F7F3FC",
-  },
+  wordStage: { minHeight: 126, marginTop: 14, paddingHorizontal: 14, paddingVertical: 16, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "#F7F3FC" },
   image: { width: 150, height: 118 },
   emoji: { fontSize: 66 },
   word: { marginTop: 8, fontSize: 32, lineHeight: 40, fontWeight: "900", textAlign: "center", color: "#28222B" },
-  recordCard: {
-    width: "100%",
-    marginTop: 14,
-    padding: 16,
-    borderRadius: 24,
-    borderWidth: 2,
-    borderColor: "#E5DDEF",
-    backgroundColor: "#FBF9FD",
-  },
+  recordCard: { width: "100%", marginTop: 14, padding: 16, borderRadius: 24, borderWidth: 2, borderColor: "#E5DDEF", backgroundColor: "#FBF9FD" },
   recordCardActive: { borderColor: "#F1A3A3", backgroundColor: "#FFF7F7" },
   recordTitle: { fontSize: 17, fontWeight: "900", textAlign: "center", color: "#302936" },
   recordHelper: { marginTop: 5, fontSize: 12, lineHeight: 18, fontWeight: "700", textAlign: "center", color: "#756C79" },
-  recordButton: {
-    minHeight: 54,
-    marginTop: 14,
-    borderRadius: 27,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#7653BD",
-  },
+  recordButton: { minHeight: 54, marginTop: 14, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: "#7653BD" },
   stopButton: { backgroundColor: "#E25C5C" },
   recordButtonText: { fontSize: 14, fontWeight: "900", color: "#FFFFFF" },
   actionRow: { marginTop: 10, flexDirection: "row", gap: 9 },
-  secondaryButton: {
-    flex: 1,
-    minHeight: 48,
-    paddingHorizontal: 10,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#EAF5FF",
-  },
+  secondaryButton: { flex: 1, minHeight: 48, paddingHorizontal: 10, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF5FF" },
   secondaryButtonText: { fontSize: 11, fontWeight: "900", textAlign: "center", color: "#287DA4" },
-  doneButton: {
-    flex: 1,
-    minHeight: 48,
-    paddingHorizontal: 10,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#5CB66B",
-  },
+  doneButton: { flex: 1, minHeight: 48, paddingHorizontal: 10, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: "#5CB66B" },
   doneButtonFinished: { backgroundColor: "#9FD9A7" },
   doneButtonText: { fontSize: 12, fontWeight: "900", color: "#FFFFFF" },
-  message: {
-    width: "100%",
-    marginTop: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: 17,
-    backgroundColor: "#FFF3D7",
-  },
+  message: { width: "100%", marginTop: 12, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 17, backgroundColor: "#FFF3D7" },
   messageDone: { backgroundColor: "#E5F7E7" },
   messageText: { fontSize: 12, lineHeight: 18, fontWeight: "800", textAlign: "center", color: "#4A414D" },
 });
