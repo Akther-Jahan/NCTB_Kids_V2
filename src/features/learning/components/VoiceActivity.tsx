@@ -49,9 +49,6 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
   const [message, setMessage] = useState("");
   const [finished, setFinished] = useState(false);
 
-  // expo-audio objects are native shared objects. These refs prevent two
-  // overlapping prepare/stop operations and prevent cleanup from racing
-  // against an in-flight recording operation.
   const recordingBusyRef = useRef(false);
   const mountedRef = useRef(true);
   const completedRef = useRef(false);
@@ -68,35 +65,16 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
       mountedRef.current = false;
       completedRef.current = true;
 
-      // Do not call player.pause() here. useAudioPlayer owns the native
-      // player lifecycle and releases it during unmount. Calling pause() from
-      // cleanup can hit an already-released shared object.
+      // Do not call player.pause() during unmount. expo-audio owns and
+      // releases this native player; pausing here can target an already
+      // released shared object.
       void stopLearningVoice();
-
-      if (recorderState.isRecording) {
-        void (async () => {
-          try {
-            await recorder.stop();
-          } catch {
-            // The recorder may already have been released during unmount.
-          }
-          try {
-            await setAudioModeAsync({
-              allowsRecording: false,
-              playsInSilentMode: true,
-            });
-          } catch {
-            // Audio mode cleanup must never crash the app.
-          }
-        })();
-      } else {
-        void setAudioModeAsync({
-          allowsRecording: false,
-          playsInSilentMode: true,
-        }).catch(() => undefined);
-      }
+      void setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      }).catch(() => undefined);
     };
-  }, [recorder, recorderState.isRecording]);
+  }, []);
 
   const playTarget = async () => {
     if (completedRef.current) return;
@@ -151,7 +129,7 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
       try {
         player.pause();
       } catch {
-        // Player can already be stopped/released; recording can continue.
+        // A stopped/released player must not prevent recording.
       }
 
       if (recorderState.isRecording) return;
@@ -165,7 +143,6 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
         allowsRecording: true,
         playsInSilentMode: true,
       });
-
       await recorder.prepareToRecordAsync();
       recorder.record();
     } catch (error) {
@@ -233,14 +210,13 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
     setFinished(true);
     setMessage("চমৎকার! এই অনুশীলন শেষ হয়েছে 🌟");
 
-    // Stop audio BEFORE notifying the parent. The parent may immediately
-    // unmount this component, so no native player operation should remain
-    // after onComplete() starts the navigation/completion flow.
+    // Stop audio before notifying the parent. The parent can immediately
+    // unmount this component after onComplete().
     await stopLearningVoice();
     try {
       if (playerStatus.playing) player.pause();
     } catch {
-      // Ignore an already-released/stopped player.
+      // Ignore an already-stopped/released player.
     }
 
     onComplete();
@@ -290,7 +266,7 @@ export default function VoiceActivity({ activity, onComplete }: Props) {
             ? "বলা শেষ হলে নিচের Stop বোতামে চাপ দাও।"
             : recordedUri
               ? "নিজের কথা শোনো, চাইলে আবার রেকর্ড করো।"
-              : "রেকর্ড চাপ দিয়ে শব্দটি পরিষ্কার করে বলো."}
+              : "রেকর্ড চাপ দিয়ে শব্দটি পরিষ্কার করে বলো।"}
         </Text>
 
         <Pressable
