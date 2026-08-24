@@ -8,3 +8,6 @@ dist/
 .DS_Store
 .git/
 *.zip
+
+android/local.properties
+local.properties
